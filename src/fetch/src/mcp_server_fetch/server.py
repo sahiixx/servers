@@ -1,4 +1,4 @@
-from typing import Annotated, Tuple
+from typing import Annotated, Tuple, Optional
 from urllib.parse import urlparse, urlunparse
 
 import markdownify
@@ -153,7 +153,7 @@ class Fetch(BaseModel):
 
     url: Annotated[AnyUrl, Field(description="URL to fetch")]
     max_length: Annotated[
-        int,
+        Optional[int],
         Field(
             default=5000,
             description="Maximum number of characters to return.",
@@ -162,7 +162,7 @@ class Fetch(BaseModel):
         ),
     ]
     start_index: Annotated[
-        int,
+        Optional[int],
         Field(
             default=0,
             description="On return output starting at this character index, useful if a previous fetch was truncated and more context is required.",
@@ -170,7 +170,7 @@ class Fetch(BaseModel):
         ),
     ]
     raw: Annotated[
-        bool,
+        Optional[bool],
         Field(
             default=False,
             description="Get the actual HTML content of the requested page, without simplification.",
@@ -235,22 +235,24 @@ Although originally you did not have internet access, and were advised to refuse
             await check_may_autonomously_fetch_url(url, user_agent_autonomous, proxy_url)
 
         content, prefix = await fetch_url(
-            url, user_agent_autonomous, force_raw=args.raw, proxy_url=proxy_url
+            url, user_agent_autonomous, force_raw=args.raw or False, proxy_url=proxy_url
         )
         original_length = len(content)
-        if args.start_index >= original_length:
+        start_index = args.start_index or 0
+        max_length = args.max_length or 5000
+        if start_index >= original_length:
             content = "<error>No more content available.</error>"
         else:
-            truncated_content = content[args.start_index : args.start_index + args.max_length]
+            truncated_content = content[start_index : start_index + max_length]
             if not truncated_content:
                 content = "<error>No more content available.</error>"
             else:
                 content = truncated_content
                 actual_content_length = len(truncated_content)
-                remaining_content = original_length - (args.start_index + actual_content_length)
+                remaining_content = original_length - (start_index + actual_content_length)
                 # Only add the prompt to continue fetching if there is still remaining content
-                if actual_content_length == args.max_length and remaining_content > 0:
-                    next_start = args.start_index + actual_content_length
+                if actual_content_length == max_length and remaining_content > 0:
+                    next_start = start_index + actual_content_length
                     content += f"\n\n<error>Content truncated. Call the fetch tool with a start_index of {next_start} to get more content.</error>"
         return [TextContent(type="text", text=f"{prefix}Contents of {url}:\n{content}")]
 
