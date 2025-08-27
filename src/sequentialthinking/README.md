@@ -77,8 +77,10 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
-To disable logging of thought information set env var: `DISABLE_THOUGHT_LOGGING` to `true`.
-Comment
+### Environment Variables
+
+- `DISABLE_THOUGHT_LOGGING`: Set to `true` to disable logging of thought information
+- `MAX_TOTAL_THOUGHTS`: Set to a positive integer to limit the maximum number of thoughts allowed (e.g., `MAX_TOTAL_THOUGHTS=50`). When the AI model requests more thoughts than this limit, the value will be capped at the maximum with a warning message. Leave unset or set to 0 for unlimited thoughts (default behavior).
 
 ### Usage with VS Code
 

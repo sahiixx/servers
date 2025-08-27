@@ -26,9 +26,12 @@ class SequentialThinkingServer {
   private thoughtHistory: ThoughtData[] = [];
   private branches: Record<string, ThoughtData[]> = {};
   private disableThoughtLogging: boolean;
+  private maxTotalThoughts?: number;
 
   constructor() {
     this.disableThoughtLogging = (process.env.DISABLE_THOUGHT_LOGGING || "").toLowerCase() === "true";
+    const maxThoughts = parseInt(process.env.MAX_TOTAL_THOUGHTS || "0") || 0;
+    this.maxTotalThoughts = maxThoughts > 0 ? maxThoughts : undefined;
   }
 
   private validateThoughtData(input: unknown): ThoughtData {
@@ -91,6 +94,12 @@ class SequentialThinkingServer {
   public processThought(input: unknown): { content: Array<{ type: string; text: string }>; isError?: boolean } {
     try {
       const validatedInput = this.validateThoughtData(input);
+
+      // Apply maximum total thoughts limit if configured
+      if (this.maxTotalThoughts && validatedInput.totalThoughts > this.maxTotalThoughts) {
+        console.error(`Warning: totalThoughts capped at ${this.maxTotalThoughts} (requested: ${validatedInput.totalThoughts})`);
+        validatedInput.totalThoughts = this.maxTotalThoughts;
+      }
 
       if (validatedInput.thoughtNumber > validatedInput.totalThoughts) {
         validatedInput.totalThoughts = validatedInput.thoughtNumber;
