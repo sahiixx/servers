@@ -733,11 +733,16 @@ export const createServer = () => {
         {
           type: 'object',
           properties: {
-            color: { type: 'string', description: 'Favorite color' },
-            number: { type: 'integer', description: 'Favorite number', minimum: 1, maximum: 100 },
+            attention: { type: 'boolean', description: 'Whether the user enjoys attention' },
+            color: { type: 'string', description: 'Favorite color', default: 'blue' },
+            email: { type: 'string', format: 'email', description: 'Favorite color' },
+            integer: { type: 'integer', description: 'Favorite integer', minimum: 1, maximum: 100, default: 42 },
+            number: { type: 'number', description: 'Favorite number', minimum: 0, maximum: 1000, default: 3.14 },
             pets: {
               type: 'string',
               enum: ['cats', 'dogs', 'birds', 'fish', 'reptiles'],
+              enumNames: ['Cats', 'Dogs', 'Birds', 'Fish', 'Reptiles'],
+              default: 'dogs',
               description: 'Favorite pets'
             },
           }
@@ -754,10 +759,9 @@ export const createServer = () => {
         });
 
         // Only access elicitationResult.content when action is accept
-        const { color, number, pets } = elicitationResult.content;
         content.push({
           type: "text",
-          text: `Their favorites are:\n- Color: ${color || 'not specified'}\n- Number: ${number || 'not specified'}\n- Pets: ${pets || 'not specified'}`,
+          text: `Their favorites are:\n${Object.entries(elicitationResult.content).map(([k, v]) => `- ${k}: ${v ?? 'not specified'}`).join('\n')}`,
         });
       } else if (elicitationResult.action === 'decline') {
         content.push({
