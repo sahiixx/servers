@@ -284,7 +284,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "Supports glob-style patterns that match paths relative to the working directory. " +
           "Use patterns like '*.ext' to match files in current directory, and '**/*.ext' to match files in all subdirectories. " +
           "Returns full paths to all matching items. Great for finding files when you don't know their exact location. " +
-          "Only searches within allowed directories.
+          "Only searches within allowed directories. " +
           "The patterns should be glob-style patterns that match paths relative to the search path. " +
           "Use patterns like ['*.ext'] to match files in current directory, and ['**/*.ext'] to match files in all subdirectories. " +
           "Multiple patterns can be provided to match different file types, e.g., ['**/*.js', '**/*.ts']. " +
