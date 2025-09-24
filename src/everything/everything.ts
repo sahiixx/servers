@@ -100,6 +100,16 @@ const GetResourceLinksSchema = z.object({
 
 const ListRootsSchema = z.object({});
 
+const AdventureGameSchema = z.object({
+  action: z
+    .enum(["start", "continue", "reset"])
+    .describe("Action to take in the adventure game"),
+  choice: z
+    .number()
+    .optional()
+    .describe("Choice number (1-3) when continuing the adventure"),
+});
+
 const StructuredContentSchema = {
   input: z.object({
     location: z
@@ -134,7 +144,8 @@ enum ToolName {
   ELICITATION = "startElicitation",
   GET_RESOURCE_LINKS = "getResourceLinks",
   STRUCTURED_CONTENT = "structuredContent",
-  LIST_ROOTS = "listRoots"
+  LIST_ROOTS = "listRoots",
+  ADVENTURE_GAME = "adventureGame"
 }
 
 enum PromptName {
@@ -181,6 +192,20 @@ export const createServer = () => {
   let currentRoots: Root[] = [];
   let clientSupportsRoots = false;
   let sessionId: string | undefined;
+
+  // Adventure game state
+  interface GameState {
+    theme?: string;
+    story?: string;
+    choices?: string[];
+    currentStep: number;
+    isActive: boolean;
+  }
+
+  let adventureGameState: GameState = {
+    currentStep: 0,
+    isActive: false
+  };
 
     // Function to start notification intervals when a client connects
   const startNotificationIntervals = (sid?: string|undefined) => {
@@ -524,6 +549,12 @@ export const createServer = () => {
           "Returns structured content along with an output schema for client data validation",
         inputSchema: zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
         outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
+      },
+      {
+        name: ToolName.ADVENTURE_GAME,
+        description:
+          "Play a choose-your-own-adventure game. Uses elicitation to get the theme initially and at each step, and sampling to generate the story",
+        inputSchema: zodToJsonSchema(AdventureGameSchema) as ToolInput,
       },
     ];
     if (clientCapabilities!.roots) tools.push ({
@@ -874,6 +905,202 @@ export const createServer = () => {
           }
         ]
       };
+    }
+
+    if (name === ToolName.ADVENTURE_GAME) {
+      const validatedArgs = AdventureGameSchema.parse(args);
+      const content = [];
+
+      if (validatedArgs.action === "reset") {
+        adventureGameState = {
+          currentStep: 0,
+          isActive: false
+        };
+        content.push({
+          type: "text",
+          text: "🎮 Adventure game has been reset. Use 'start' action to begin a new adventure!"
+        });
+        return { content };
+      }
+
+      if (validatedArgs.action === "start") {
+        // Use elicitation to get the theme
+        const themeElicitation = await requestElicitation(
+          "🎭 Let's create an adventure! What theme would you like for your story?",
+          {
+            type: "object",
+            properties: {
+              theme: {
+                type: "string",
+                enum: ["fantasy", "sci-fi", "mystery", "horror", "western", "pirates"],
+                description: "Choose the theme for your adventure"
+              },
+              difficulty: {
+                type: "string",
+                enum: ["easy", "medium", "hard"],
+                description: "Choose the difficulty level"
+              }
+            },
+            required: ["theme"]
+          }
+        );
+
+        if (themeElicitation.action === "decline" || themeElicitation.action === "cancel") {
+          content.push({
+            type: "text",
+            text: "❌ Adventure setup cancelled. Use 'start' action to try again when you're ready!"
+          });
+          return { content };
+        }
+
+        if (themeElicitation.action === "accept" && themeElicitation.content) {
+          const { theme, difficulty } = themeElicitation.content;
+          adventureGameState.theme = theme || "fantasy";
+          adventureGameState.isActive = true;
+          adventureGameState.currentStep = 1;
+
+          // Use sampling to generate the initial story
+          const storyPrompt = `Create the opening scene for a ${theme} adventure story. The difficulty is ${difficulty || 'medium'}.
+          Write a compelling 2-3 paragraph opening that ends with the protagonist facing an important decision.
+          Then provide exactly 3 choices for what the protagonist should do next.
+          Format as: [STORY] story text [CHOICES] 1. first choice 2. second choice 3. third choice`;
+
+          const storyResult = await requestSampling(
+            storyPrompt,
+            "adventure-game-start",
+            250
+          );
+
+          // Parse the story and choices from the result
+          const storyText = (storyResult.content as any).text || "";
+          const storyParts = storyText.split("[CHOICES]");
+          const story = storyParts[0].replace("[STORY]", "").trim();
+          const choicesText = storyParts[1] || "";
+
+          // Extract choices
+          const choiceMatches = choicesText.match(/[123]\.\s*([^\n]+)/g) || [];
+          const choices = choiceMatches.map((c: string) => c.replace(/^[123]\.\s*/, ""));
+
+          adventureGameState.story = story;
+          adventureGameState.choices = choices;
+
+          content.push({
+            type: "text",
+            text: `🎮 **${theme.toUpperCase()} ADVENTURE** (Difficulty: ${difficulty || 'medium'})\n\n${story}\n\n**What do you do?**\n${choices.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}\n\nUse 'continue' action with your choice number (1-3)`
+          });
+        }
+
+        return { content };
+      }
+
+      if (validatedArgs.action === "continue") {
+        if (!adventureGameState.isActive) {
+          content.push({
+            type: "text",
+            text: "❌ No active adventure. Use 'start' action to begin a new adventure!"
+          });
+          return { content };
+        }
+
+        if (!validatedArgs.choice || validatedArgs.choice < 1 || validatedArgs.choice > 3) {
+          content.push({
+            type: "text",
+            text: "❌ Please provide a valid choice number (1-3)"
+          });
+          return { content };
+        }
+
+        const chosenAction = adventureGameState.choices?.[validatedArgs.choice - 1];
+
+        // Use elicitation for narrative decision
+        const narrativeElicitation = await requestElicitation(
+          `You chose: "${chosenAction}"\n\nHow would you like the story to develop?`,
+          {
+            type: "object",
+            properties: {
+              tone: {
+                type: "string",
+                enum: ["dramatic", "humorous", "suspenseful", "action-packed", "thoughtful"],
+                description: "Choose the tone for the next part"
+              },
+              outcome: {
+                type: "string",
+                enum: ["success", "partial-success", "setback", "discovery"],
+                description: "Choose the general outcome"
+              }
+            },
+            required: ["outcome"]
+          }
+        );
+
+        if (narrativeElicitation.action === "decline" || narrativeElicitation.action === "cancel") {
+          content.push({
+            type: "text",
+            text: "⚠️ Story development cancelled. Use 'continue' with a choice to try again, or 'reset' to start over."
+          });
+          return { content };
+        }
+
+        if (narrativeElicitation.action === "accept" && narrativeElicitation.content) {
+          const { tone, outcome } = narrativeElicitation.content;
+          adventureGameState.currentStep++;
+
+          // Use sampling to generate the next part of the story
+          const continuePrompt = `Continue the ${adventureGameState.theme} adventure story.
+          Previous action: "${chosenAction}"
+          Desired tone: ${tone || 'neutral'}
+          Outcome type: ${outcome}
+
+          Write 2-3 paragraphs continuing the story with the specified outcome and tone.
+          If this is step ${adventureGameState.currentStep}, ${adventureGameState.currentStep >= 5 ? 'provide a satisfying conclusion to the adventure' : 'end with another decision point and provide exactly 3 new choices'}.
+          ${adventureGameState.currentStep < 5 ? 'Format as: [STORY] story text [CHOICES] 1. first choice 2. second choice 3. third choice' : 'Format as: [STORY] story text [END]'}`;
+
+          const storyResult = await requestSampling(
+            continuePrompt,
+            "adventure-game-continue",
+            300
+          );
+
+          const storyText = (storyResult.content as any).text || "";
+
+          if (adventureGameState.currentStep >= 5 || storyText.includes("[END]")) {
+            // End the adventure
+            const finalStory = storyText.replace("[STORY]", "").replace("[END]", "").trim();
+            adventureGameState.isActive = false;
+
+            content.push({
+              type: "text",
+              text: `📖 **CHAPTER ${adventureGameState.currentStep}**\n\n${finalStory}\n\n🎊 **THE END**\n\nThanks for playing! Use 'start' action to begin a new adventure!`
+            });
+          } else {
+            // Continue the adventure
+            const storyParts = storyText.split("[CHOICES]");
+            const story = storyParts[0].replace("[STORY]", "").trim();
+            const choicesText = storyParts[1] || "";
+
+            // Extract choices
+            const choiceMatches = choicesText.match(/[123]\.\s*([^\n]+)/g) || [];
+            const choices = choiceMatches.map((c: string) => c.replace(/^[123]\.\s*/, ""));
+
+            adventureGameState.story = story;
+            adventureGameState.choices = choices;
+
+            content.push({
+              type: "text",
+              text: `📖 **CHAPTER ${adventureGameState.currentStep}**\n\n${story}\n\n**What do you do next?**\n${choices.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}\n\nUse 'continue' action with your choice number (1-3)`
+            });
+          }
+        }
+
+        return { content };
+      }
+
+      // Default response for invalid action
+      content.push({
+        type: "text",
+        text: "❌ Invalid action. Use 'start' to begin, 'continue' with a choice number to play, or 'reset' to start over."
+      });
+      return { content };
     }
 
     throw new Error(`Unknown tool: ${name}`);
