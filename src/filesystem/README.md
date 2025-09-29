@@ -13,7 +13,7 @@ Node.js server implementing Model Context Protocol (MCP) for filesystem operatio
 
 ## Breaking Changes
 
-### search_files Tool Changes (February 2025)
+### search_files Tool Changes (September 2025)
 The `search_files` tool has been updated with the following breaking changes:
 - **Parameter change**: The `pattern` parameter (string) has been replaced with `patterns` parameter (string[])  
 - **Behavior change**: Now uses glob pattern matching exclusively instead of mixed glob/substring matching
