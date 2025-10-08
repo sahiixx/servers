@@ -890,45 +890,19 @@ export const createServer = () => {
       }
 
       const blob = await zip.generateAsync({ type: "base64" });
+      const mimeType = "application/zip";
       if (outputType === 'inlinedResourceLink') {
-        return {
-          content: [
-            {
-              type: "resource_link",
-              mimeType: "application/zip",
-              uri: `data:application/zip;base64,${blob}`,
-            },
-          ],
-        };
+        const uri = `data:${mimeType};base64,${blob}`;
+        return {content: [{type: "resource_link", mimeType, uri}]};
       } else {
         const name = `out_${Date.now()}.zip`;
         const uri = `resource://${name}`;
-        const resource = <Resource>{
-          uri,
-          name,
-          mimeType: "application/zip",
-          blob,
-        };
+        const resource = <Resource>{uri, name, mimeType, blob};
         if (outputType === 'resource') {
-          return {
-            content: [
-              {
-                type: "resource",
-                resource,
-              },
-            ],
-          };
+          return {content: [{ type: "resource",  resource}]};
         } else if (outputType === 'resourceLink') {
           transientResources.set(uri, resource);
-          return {
-            content: [
-              {
-                type: "resource_link",
-                mimeType: "application/zip",
-                uri,
-              },
-            ],
-          };
+          return {content: [{ type: "resource_link", mimeType, uri }]};
         } else {
           throw new Error(`Unknown outputType: ${outputType}`);
         }
