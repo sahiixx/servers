@@ -893,16 +893,33 @@ export const createServer = () => {
       const mimeType = "application/zip";
       if (outputType === 'inlinedResourceLink') {
         const uri = `data:${mimeType};base64,${blob}`;
-        return {content: [{type: "resource_link", mimeType, uri}]};
+        return {
+          content: [{
+            type: "resource_link",
+            mimeType,
+            uri
+          }]
+        };
       } else {
         const name = `out_${Date.now()}.zip`;
         const uri = `resource://${name}`;
         const resource = <Resource>{uri, name, mimeType, blob};
         if (outputType === 'resource') {
-          return {content: [{ type: "resource",  resource}]};
+          return {
+            content: [{
+              type: "resource",
+              resource
+            }]
+          };
         } else if (outputType === 'resourceLink') {
           transientResources.set(uri, resource);
-          return {content: [{ type: "resource_link", mimeType, uri }]};
+          return {
+            content: [{
+              type: "resource_link",
+              mimeType,
+              uri
+            }]
+          };
         } else {
           throw new Error(`Unknown outputType: ${outputType}`);
         }
