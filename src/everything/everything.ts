@@ -872,7 +872,6 @@ export const createServer = () => {
 
     if (name === ToolName.ZIP_RESOURCES) {
       const { files, outputType } = ZipResourcesInputSchema.parse(args);
-
       const zip = new JSZip();
 
       for (const [fileName, fileUrl] of Object.entries(files)) {
