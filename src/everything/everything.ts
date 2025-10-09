@@ -134,9 +134,8 @@ const ZipResourcesInputSchema = z.object({
   files: z.record(z.string().url().describe("URL of the file to include in the zip")).describe("Mapping of file names to URLs to include in the zip"),
   outputType: z.enum([
     'resourceLink',
-    'inlinedResourceLink',
     'resource'
-  ]).default('inlinedResourceLink').describe("How the resulting zip file should be returned. 'resourceLink' returns a linked to a resource that can be read later, 'inlinedResourceLink' returns a resource_link with a data URI, and 'resource' returns a full resource object."),
+  ]).default('resource').describe("How the resulting zip file should be returned. 'resourceLink' returns a linked to a resource that can be read later, 'resource' returns a full resource object."),
 });
 
 enum ToolName {
@@ -891,8 +890,18 @@ export const createServer = () => {
 
       const blob = await zip.generateAsync({ type: "base64" });
       const mimeType = "application/zip";
-      if (outputType === 'inlinedResourceLink') {
-        const uri = `data:${mimeType};base64,${blob}`;
+      const name = `out_${Date.now()}.zip`;
+      const uri = `resource://${name}`;
+      const resource = <Resource>{uri, name, mimeType, blob};
+      if (outputType === 'resource') {
+        return {
+          content: [{
+            type: "resource",
+            resource
+          }]
+        };
+      } else if (outputType === 'resourceLink') {
+        transientResources.set(uri, resource);
         return {
           content: [{
             type: "resource_link",
@@ -901,28 +910,7 @@ export const createServer = () => {
           }]
         };
       } else {
-        const name = `out_${Date.now()}.zip`;
-        const uri = `resource://${name}`;
-        const resource = <Resource>{uri, name, mimeType, blob};
-        if (outputType === 'resource') {
-          return {
-            content: [{
-              type: "resource",
-              resource
-            }]
-          };
-        } else if (outputType === 'resourceLink') {
-          transientResources.set(uri, resource);
-          return {
-            content: [{
-              type: "resource_link",
-              mimeType,
-              uri
-            }]
-          };
-        } else {
-          throw new Error(`Unknown outputType: ${outputType}`);
-        }
+        throw new Error(`Unknown outputType: ${outputType}`);
       }
     }
 
