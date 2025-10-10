@@ -135,7 +135,7 @@ const ZipResourcesInputSchema = z.object({
   outputType: z.enum([
     'resourceLink',
     'resource'
-  ]).default('resource').describe("How the resulting zip file should be returned. 'resourceLink' returns a linked to a resource that can be read later, 'resource' returns a full resource object."),
+  ]).default('resource').describe("How the resulting zip file should be returned. 'resourceLink' returns a link to a resource that can be read later, 'resource' returns a full resource object."),
 });
 
 enum ToolName {
