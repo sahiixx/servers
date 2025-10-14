@@ -343,12 +343,6 @@ export const createServer = () => {
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri;
 
-    if (transientResources.has(uri)) {
-      return {
-        contents: [transientResources.get(uri)!],
-      };
-    }
-
     if (uri.startsWith("test://static/resource/")) {
       const index = parseInt(uri.split("/").pop() ?? "", 10) - 1;
       if (index >= 0 && index < ALL_RESOURCES.length) {
@@ -905,7 +899,7 @@ export const createServer = () => {
       const blob = await zip.generateAsync({ type: "base64" });
       const mimeType = "application/zip";
       const name = `out_${Date.now()}.zip`;
-      const uri = `resource://${name}`;
+      const uri = `test://static/resource/${ALL_RESOURCES.length + 1}`;
       const resource = <Resource>{uri, name, mimeType, blob};
       if (outputType === 'resource') {
         return {
@@ -915,7 +909,7 @@ export const createServer = () => {
           }]
         };
       } else if (outputType === 'resourceLink') {
-        transientResources.set(uri, resource);
+        ALL_RESOURCES.push(resource);
         return {
           content: [{
             type: "resource_link",
