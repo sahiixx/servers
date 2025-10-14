@@ -365,9 +365,6 @@ export const createServer = () => {
   server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
     const { uri } = request.params;
     subscriptions.add(uri);
-
-    // Request sampling from client when someone subscribes
-    await requestSampling("A new subscription was started", uri, undefined, extra.sendRequest);
     return {};
   });
 
@@ -874,20 +871,20 @@ export const createServer = () => {
       const { files, outputType } = ZipResourcesInputSchema.parse(args);
       const zip = new JSZip();
 
-      for (const [fileName, fileUrlString] of Object.entries(files)) {
+      for (const [fileName, urlString] of Object.entries(files)) {
         try {
-          const fileUrl = new URL(fileUrlString);
-          if (fileUrl.protocol !== 'http:' && fileUrl.protocol !== 'https:' && fileUrl.protocol !== 'data:') {
-            throw new Error(`Unsupported URL protocol for ${fileUrlString}. Only http, https, and data URLs are supported.`);
+          const url = new URL(urlString);
+          if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'data:') {
+            throw new Error(`Unsupported URL protocol for ${urlString}. Only http, https, and data URLs are supported.`);
           }
-          const response = await fetch(fileUrl);
+          const response = await fetch(url);
           if (!response.ok) {
-            throw new Error(`Failed to fetch ${fileUrl}: ${response.statusText}`);
+            throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
           }
           const arrayBuffer = await response.arrayBuffer();
           zip.file(fileName, arrayBuffer);
         } catch (error) {
-          throw new Error(`Error fetching file ${fileUrl}: ${error instanceof Error ? error.message : String(error)}`);
+          throw new Error(`Error fetching file ${urlString}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
