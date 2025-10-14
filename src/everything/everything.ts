@@ -340,8 +340,6 @@ export const createServer = () => {
     };
   });
 
-  const transientResources = new Map<string, Resource>();
-
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri;
 
