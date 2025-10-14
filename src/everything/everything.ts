@@ -131,7 +131,9 @@ const StructuredContentSchema = {
 };
 
 const ZipResourcesInputSchema = z.object({
-  files: z.record(z.string().url().describe("URL of the file to include in the zip")).describe("Mapping of file names to URLs to include in the zip"),
+  files: z.record(z.string().url().describe("URL of the file to include in the zip")).describe("Mapping of file names to URLs to include in the zip").default({
+    "README.md": "https://raw.githubusercontent.com/modelcontextprotocol/servers/refs/heads/main/README.md",
+  }),
   outputType: z.enum([
     'resourceLink',
     'resource'
