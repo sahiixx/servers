@@ -130,9 +130,9 @@ const StructuredContentSchema = {
   })
 };
 
-const GzipResourceInputSchema = z.object({
-  name: z.string().describe("Name of the file to compress"),
-  data: z.string().url().describe("URL or data URI of the file content to compress"),
+const GzipInputSchema = z.object({
+  name: z.string().describe("Name of the output file").default("README.md.gz"),
+  data: z.string().url().describe("URL or data URI of the file content to compress").default("https://raw.githubusercontent.com/modelcontextprotocol/servers/refs/heads/main/README.md"),
   outputType: z.enum([
     'resourceLink',
     'resource'
@@ -151,7 +151,7 @@ enum ToolName {
   ELICITATION = "startElicitation",
   GET_RESOURCE_LINKS = "getResourceLinks",
   STRUCTURED_CONTENT = "structuredContent",
-  GZIP_RESOURCE = "gzip",
+  GZIP = "gzip",
   LIST_ROOTS = "listRoots"
 }
 
@@ -544,9 +544,9 @@ export const createServer = () => {
         outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
       },
       {
-        name: ToolName.GZIP_RESOURCE,
+        name: ToolName.GZIP,
         description: "Compresses a single file using gzip compression. Takes a file name and data URI, returns the compressed data as a gzipped resource.",
-        inputSchema: zodToJsonSchema(GzipResourceInputSchema) as ToolInput,
+        inputSchema: zodToJsonSchema(GzipInputSchema) as ToolInput,
       }
     ];
     if (clientCapabilities!.roots) tools.push ({
@@ -860,13 +860,13 @@ export const createServer = () => {
       };
     }
 
-    if (name === ToolName.GZIP_RESOURCE) {
+    if (name === ToolName.GZIP) {
       const GZIP_MAX_FETCH_SIZE = Number(process.env.GZIP_MAX_FETCH_SIZE ?? String(10 * 1024 * 1024)); // 10 MB default
       const GZIP_MAX_FETCH_TIME_MILLIS = Number(process.env.GZIP_MAX_FETCH_TIME_MILLIS ?? String(30 * 1000)); // 30 seconds default.
       // Comma-separated list of allowed domains. Empty means all domains are allowed.
       const GZIP_ALLOWED_DOMAINS = (process.env.GZIP_ALLOWED_DOMAINS ?? "raw.githubusercontent.com").split(",").map(d => d.trim().toLowerCase()).filter(d => d.length > 0);
 
-      const { name: fileName, data: dataUri, outputType } = GzipResourceInputSchema.parse(args);
+      const { name, data: dataUri, outputType } = GzipInputSchema.parse(args);
 
       try {
         const url = new URL(dataUri);
@@ -894,9 +894,8 @@ export const createServer = () => {
         const blob = compressedBuffer.toString("base64");
 
         const mimeType = "application/gzip";
-        const gzipName = `${fileName}.gz`;
         const uri = `test://static/resource/${ALL_RESOURCES.length + 1}`;
-        const resource = <Resource>{uri, name: gzipName, mimeType, blob};
+        const resource = <Resource>{uri, name, mimeType, blob};
 
         if (outputType === 'resource') {
           return {
