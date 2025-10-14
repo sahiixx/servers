@@ -874,8 +874,12 @@ export const createServer = () => {
       const { files, outputType } = ZipResourcesInputSchema.parse(args);
       const zip = new JSZip();
 
-      for (const [fileName, fileUrl] of Object.entries(files)) {
+      for (const [fileName, fileUrlString] of Object.entries(files)) {
         try {
+          const fileUrl = new URL(fileUrlString);
+          if (fileUrl.protocol !== 'http:' && fileUrl.protocol !== 'https:' && fileUrl.protocol !== 'data:') {
+            throw new Error(`Unsupported URL protocol for ${fileUrlString}. Only http, https, and data URLs are supported.`);
+          }
           const response = await fetch(fileUrl);
           if (!response.ok) {
             throw new Error(`Failed to fetch ${fileUrl}: ${response.statusText}`);
