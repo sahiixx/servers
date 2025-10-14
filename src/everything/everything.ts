@@ -30,7 +30,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import JSZip from "jszip";
+import { gzipSync } from "node:zlib";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -130,14 +130,13 @@ const StructuredContentSchema = {
   })
 };
 
-const ZipResourcesInputSchema = z.object({
-  files: z.record(z.string().url().describe("URL of the file to include in the zip")).describe("Mapping of file names to URLs to include in the zip").default({
-    "README.md": "https://raw.githubusercontent.com/modelcontextprotocol/servers/refs/heads/main/README.md",
-  }),
+const GzipResourceInputSchema = z.object({
+  name: z.string().describe("Name of the file to compress"),
+  data: z.string().url().describe("URL or data URI of the file content to compress"),
   outputType: z.enum([
     'resourceLink',
     'resource'
-  ]).default('resource').describe("How the resulting zip file should be returned. 'resourceLink' returns a link to a resource that can be read later, 'resource' returns a full resource object."),
+  ]).default('resource').describe("How the resulting gzipped file should be returned. 'resourceLink' returns a link to a resource that can be read later, 'resource' returns a full resource object."),
 });
 
 enum ToolName {
@@ -152,7 +151,7 @@ enum ToolName {
   ELICITATION = "startElicitation",
   GET_RESOURCE_LINKS = "getResourceLinks",
   STRUCTURED_CONTENT = "structuredContent",
-  ZIP_RESOURCES = "zip",
+  GZIP_RESOURCE = "gzip",
   LIST_ROOTS = "listRoots"
 }
 
@@ -545,9 +544,9 @@ export const createServer = () => {
         outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
       },
       {
-        name: ToolName.ZIP_RESOURCES,
-        description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
-        inputSchema: zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
+        name: ToolName.GZIP_RESOURCE,
+        description: "Compresses a single file using gzip compression. Takes a file name and data URI, returns the compressed data as a gzipped resource.",
+        inputSchema: zodToJsonSchema(GzipResourceInputSchema) as ToolInput,
       }
     ];
     if (clientCapabilities!.roots) tools.push ({
@@ -861,75 +860,67 @@ export const createServer = () => {
       };
     }
 
-    if (name === ToolName.ZIP_RESOURCES) {
-      const ZIP_MAX_FETCH_SIZE = Number(process.env.ZIP_MAX_FETCH_SIZE ?? String(10 * 1024 * 1024)); // 10 MB default
-      const ZIP_MAX_FETCH_TIME_MILLIS =  Number(process.env.ZIP_MAX_FETCH_TIME_MILLIS ?? String(30 * 1000)); // 30 seconds default.
+    if (name === ToolName.GZIP_RESOURCE) {
+      const GZIP_MAX_FETCH_SIZE = Number(process.env.GZIP_MAX_FETCH_SIZE ?? String(10 * 1024 * 1024)); // 10 MB default
+      const GZIP_MAX_FETCH_TIME_MILLIS = Number(process.env.GZIP_MAX_FETCH_TIME_MILLIS ?? String(30 * 1000)); // 30 seconds default.
       // Comma-separated list of allowed domains. Empty means all domains are allowed.
-      const ZIP_ALLOWED_DOMAINS = (process.env.ZIP_ALLOWED_DOMAINS ?? "raw.githubusercontent.com").split(",").map(d => d.trim().toLowerCase()).filter(d => d.length > 0);
+      const GZIP_ALLOWED_DOMAINS = (process.env.GZIP_ALLOWED_DOMAINS ?? "raw.githubusercontent.com").split(",").map(d => d.trim().toLowerCase()).filter(d => d.length > 0);
 
-      const { files, outputType } = ZipResourcesInputSchema.parse(args);
-      const zip = new JSZip();
+      const { name: fileName, data: dataUri, outputType } = GzipResourceInputSchema.parse(args);
 
-      let remainingUploadBytes = ZIP_MAX_FETCH_SIZE;
-      const uploadEndTime = Date.now() + ZIP_MAX_FETCH_TIME_MILLIS;
-
-      for (const [fileName, urlString] of Object.entries(files)) {
-        try {
-          if (remainingUploadBytes <= 0) {
-            throw new Error(`Max upload size of ${ZIP_MAX_FETCH_SIZE} bytes exceeded`);
-          }
-
-          const url = new URL(urlString);
-          if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'data:') {
-            throw new Error(`Unsupported URL protocol for ${urlString}. Only http, https, and data URLs are supported.`);
-          }
-          if (ZIP_ALLOWED_DOMAINS.length > 0 && (url.protocol === 'http:' || url.protocol === 'https:')) {
-            const domain = url.hostname;
-            const domainAllowed = ZIP_ALLOWED_DOMAINS.some(allowedDomain => {
-              return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
-            });
-            if (!domainAllowed) {
-              throw new Error(`Domain ${domain} is not in the allowed domains list.`);
-            }
-          }
-
-          const response = await fetchSafely(url, {
-            maxBytes: remainingUploadBytes,
-            timeoutMillis: uploadEndTime - Date.now()
-          });
-          remainingUploadBytes -= response.byteLength;
-
-          zip.file(fileName, response);
-        } catch (error) {
-          throw new Error(
-            `Error fetching file ${urlString}: ${error instanceof Error ? error.message : String(error)}`
-          );
+      try {
+        const url = new URL(dataUri);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'data:') {
+          throw new Error(`Unsupported URL protocol for ${dataUri}. Only http, https, and data URLs are supported.`);
         }
-      }
+        if (GZIP_ALLOWED_DOMAINS.length > 0 && (url.protocol === 'http:' || url.protocol === 'https:')) {
+          const domain = url.hostname;
+          const domainAllowed = GZIP_ALLOWED_DOMAINS.some(allowedDomain => {
+            return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
+          });
+          if (!domainAllowed) {
+            throw new Error(`Domain ${domain} is not in the allowed domains list.`);
+          }
+        }
 
-      const blob = await zip.generateAsync({ type: "base64" });
-      const mimeType = "application/zip";
-      const name = `out_${Date.now()}.zip`;
-      const uri = `test://static/resource/${ALL_RESOURCES.length + 1}`;
-      const resource = <Resource>{uri, name, mimeType, blob};
-      if (outputType === 'resource') {
-        return {
-          content: [{
-            type: "resource",
-            resource
-          }]
-        };
-      } else if (outputType === 'resourceLink') {
-        ALL_RESOURCES.push(resource);
-        return {
-          content: [{
-            type: "resource_link",
-            mimeType,
-            uri
-          }]
-        };
-      } else {
-        throw new Error(`Unknown outputType: ${outputType}`);
+        const response = await fetchSafely(url, {
+          maxBytes: GZIP_MAX_FETCH_SIZE,
+          timeoutMillis: GZIP_MAX_FETCH_TIME_MILLIS
+        });
+
+        // Compress the data using gzip
+        const inputBuffer = Buffer.from(response);
+        const compressedBuffer = gzipSync(inputBuffer);
+        const blob = compressedBuffer.toString("base64");
+
+        const mimeType = "application/gzip";
+        const gzipName = `${fileName}.gz`;
+        const uri = `test://static/resource/${ALL_RESOURCES.length + 1}`;
+        const resource = <Resource>{uri, name: gzipName, mimeType, blob};
+
+        if (outputType === 'resource') {
+          return {
+            content: [{
+              type: "resource",
+              resource
+            }]
+          };
+        } else if (outputType === 'resourceLink') {
+          ALL_RESOURCES.push(resource);
+          return {
+            content: [{
+              type: "resource_link",
+              mimeType,
+              uri
+            }]
+          };
+        } else {
+          throw new Error(`Unknown outputType: ${outputType}`);
+        }
+      } catch (error) {
+        throw new Error(
+          `Error processing file ${dataUri}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
