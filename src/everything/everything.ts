@@ -421,20 +421,20 @@ export const createServer = () => {
     return {
       messages: [
         {
-          role: "user" as const,
+          role: "user",
           content: {
-            type: "text" as const,
+            type: "text",
             text: `This prompt includes Resource ${parsedId}. Please analyze the following resource:`,
           },
         },
         {
-          role: "user" as const,
+          role: "user",
           content: {
-            type: "resource" as const,
+            type: "resource",
             resource: resource,
           },
         },
-      ],
+      ] as any,
     };
   });
 
