@@ -1,7 +1,6 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
-  CallToolRequestSchema,
   ClientCapabilities,
   CompleteRequestSchema,
   CreateMessageRequest,
@@ -12,7 +11,6 @@ import {
   ListPromptsRequestSchema,
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
-  ListToolsRequestSchema,
   LoggingLevel,
   ReadResourceRequestSchema,
   Resource,
@@ -20,13 +18,10 @@ import {
   ServerNotification,
   ServerRequest,
   SubscribeRequestSchema,
-  Tool,
-  ToolSchema,
   UnsubscribeRequestSchema,
   type Root
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -35,12 +30,6 @@ import JSZip from "jszip";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const instructions = readFileSync(join(__dirname, "instructions.md"), "utf-8");
-
-const ToolInputSchema = ToolSchema.shape.inputSchema;
-type ToolInput = z.infer<typeof ToolInputSchema>;
-
-const ToolOutputSchema = ToolSchema.shape.outputSchema;
-type ToolOutput = z.infer<typeof ToolOutputSchema>;
 
 type SendRequest = RequestHandlerExtra<ServerRequest, ServerNotification>["sendRequest"];
 
@@ -164,10 +153,9 @@ const EXAMPLE_COMPLETIONS = {
 };
 
 export const createServer = () => {
-  const server = new Server(
+  const mcpServer = new McpServer(
     {
       name: "example-servers/everything",
-      title: "Everything Example Server",
       version: "1.0.0",
     },
     {
@@ -181,6 +169,9 @@ export const createServer = () => {
       instructions
     }
   );
+
+  // Access underlying Server for low-level operations
+  const server = mcpServer.server;
 
   let subscriptions: Set<string> = new Set();
   let subsUpdateInterval: NodeJS.Timeout | undefined;
@@ -272,7 +263,7 @@ export const createServer = () => {
       },
     };
 
-    return await sendRequest(request, ElicitResultSchema);
+    return await sendRequest(request, ElicitResultSchema, {timeout: 10 * 60 * 1000 /* 10 minutes */});
   };
 
   const ALL_RESOURCES: Resource[] = Array.from({ length: 100 }, (_, i) => {
@@ -479,461 +470,423 @@ export const createServer = () => {
     throw new Error(`Unknown prompt: ${name}`);
   });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools: Tool[] = [
-      {
-        name: ToolName.ECHO,
-        description: "Echoes back the input",
-        inputSchema: zodToJsonSchema(EchoSchema) as ToolInput,
-      },
-      {
-        name: ToolName.ADD,
-        description: "Adds two numbers",
-        inputSchema: zodToJsonSchema(AddSchema) as ToolInput,
-      },
-      {
-        name: ToolName.LONG_RUNNING_OPERATION,
-        description:
-          "Demonstrates a long running operation with progress updates",
-        inputSchema: zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
-      },
-      {
-        name: ToolName.PRINT_ENV,
-        description:
-          "Prints all environment variables, helpful for debugging MCP server configuration",
-        inputSchema: zodToJsonSchema(PrintEnvSchema) as ToolInput,
-      },
-      {
-        name: ToolName.SAMPLE_LLM,
-        description: "Samples from an LLM using MCP's sampling feature",
-        inputSchema: zodToJsonSchema(SampleLLMSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_TINY_IMAGE,
-        description: "Returns the MCP_TINY_IMAGE",
-        inputSchema: zodToJsonSchema(GetTinyImageSchema) as ToolInput,
-      },
-      {
-        name: ToolName.ANNOTATED_MESSAGE,
-        description:
-          "Demonstrates how annotations can be used to provide metadata about content",
-        inputSchema: zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_RESOURCE_REFERENCE,
-        description:
-          "Returns a resource reference that can be used by MCP clients",
-        inputSchema: zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_RESOURCE_LINKS,
-        description:
-          "Returns multiple resource links that reference different types of resources",
-        inputSchema: zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
-      },
-      {
-        name: ToolName.STRUCTURED_CONTENT,
-        description:
-          "Returns structured content along with an output schema for client data validation",
-        inputSchema: zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
-        outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
-      },
-      {
-        name: ToolName.ZIP_RESOURCES,
-        description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
-        inputSchema: zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
-      }
-    ];
-    if (clientCapabilities!.roots) tools.push ({
-        name: ToolName.LIST_ROOTS,
-        description:
-            "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
-        inputSchema: zodToJsonSchema(ListRootsSchema) as ToolInput,
-    });
-    if (clientCapabilities!.elicitation) tools.push ({
-        name: ToolName.ELICITATION,
-        description: "Demonstrates the Elicitation feature by asking the user to provide information about their favorite color, number, and pets.",
-        inputSchema: zodToJsonSchema(ElicitationSchema) as ToolInput,
-    });
-
-    return { tools };
+  // Register tools with McpServer
+  mcpServer.registerTool(ToolName.ECHO, {
+    description: "Echoes back the input",
+    inputSchema: {
+      message: z.string().describe("Message to echo")
+    }
+  }, async ({ message }) => {
+    return {
+      content: [{ type: "text", text: `Echo: ${message}` }],
+    };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request,extra) => {
-    const { name, arguments: args } = request.params;
-
-    if (name === ToolName.ECHO) {
-      const validatedArgs = EchoSchema.parse(args);
-      return {
-        content: [{ type: "text", text: `Echo: ${validatedArgs.message}` }],
-      };
+  mcpServer.registerTool(ToolName.ADD, {
+    description: "Adds two numbers",
+    inputSchema: {
+      a: z.number().describe("First number"),
+      b: z.number().describe("Second number"),
     }
+  }, async ({ a, b }) => {
+    const sum = a + b;
+    return {
+      content: [{
+        type: "text",
+        text: `The sum of ${a} and ${b} is ${sum}.`,
+      }],
+    };
+  });
 
-    if (name === ToolName.ADD) {
-      const validatedArgs = AddSchema.parse(args);
-      const sum = validatedArgs.a + validatedArgs.b;
-      return {
-        content: [
-          {
-            type: "text",
-            text: `The sum of ${validatedArgs.a} and ${validatedArgs.b} is ${sum}.`,
-          },
-        ],
-      };
+  mcpServer.registerTool(ToolName.LONG_RUNNING_OPERATION, {
+    description: "Demonstrates a long running operation with progress updates",
+    inputSchema: {
+      duration: z.number().default(10).describe("Duration of the operation in seconds"),
+      steps: z.number().default(5).describe("Number of steps in the operation"),
     }
+  }, async ({ duration, steps }, extra) => {
+    const stepDuration = duration / steps;
+    const progressToken = extra._meta?.progressToken;
 
-    if (name === ToolName.LONG_RUNNING_OPERATION) {
-      const validatedArgs = LongRunningOperationSchema.parse(args);
-      const { duration, steps } = validatedArgs;
-      const stepDuration = duration / steps;
-      const progressToken = request.params._meta?.progressToken;
-
-      for (let i = 1; i < steps + 1; i++) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, stepDuration * 1000)
-        );
-
-        if (progressToken !== undefined) {
-          await server.notification({
-            method: "notifications/progress",
-            params: {
-              progress: i,
-              total: steps,
-              progressToken,
-            },
-          },{relatedRequestId: extra.requestId});
-        }
-      }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Long running operation completed. Duration: ${duration} seconds, Steps: ${steps}.`,
-          },
-        ],
-      };
-    }
-
-    if (name === ToolName.PRINT_ENV) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(process.env, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (name === ToolName.SAMPLE_LLM) {
-      const validatedArgs = SampleLLMSchema.parse(args);
-      const { prompt, maxTokens } = validatedArgs;
-
-      const result = await requestSampling(
-        prompt,
-        ToolName.SAMPLE_LLM,
-        maxTokens,
-        extra.sendRequest
+    for (let i = 1; i < steps + 1; i++) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, stepDuration * 1000)
       );
-      return {
-        content: [
-          { type: "text", text: `LLM sampling result: ${result.content.text}` },
-        ],
-      };
-    }
 
-    if (name === ToolName.GET_TINY_IMAGE) {
-      GetTinyImageSchema.parse(args);
-      return {
-        content: [
-          {
-            type: "text",
-            text: "This is a tiny image:",
+      if (progressToken !== undefined) {
+        await server.notification({
+          method: "notifications/progress",
+          params: {
+            progress: i,
+            total: steps,
+            progressToken,
           },
-          {
-            type: "image",
-            data: MCP_TINY_IMAGE,
-            mimeType: "image/png",
-          },
-          {
-            type: "text",
-            text: "The image above is the MCP tiny image.",
-          },
-        ],
-      };
-    }
-
-    if (name === ToolName.ANNOTATED_MESSAGE) {
-      const { messageType, includeImage } = AnnotatedMessageSchema.parse(args);
-
-      const content = [];
-
-      // Main message with different priorities/audiences based on type
-      if (messageType === "error") {
-        content.push({
-          type: "text",
-          text: "Error: Operation failed",
-          annotations: {
-            priority: 1.0, // Errors are highest priority
-            audience: ["user", "assistant"], // Both need to know about errors
-          },
-        });
-      } else if (messageType === "success") {
-        content.push({
-          type: "text",
-          text: "Operation completed successfully",
-          annotations: {
-            priority: 0.7, // Success messages are important but not critical
-            audience: ["user"], // Success mainly for user consumption
-          },
-        });
-      } else if (messageType === "debug") {
-        content.push({
-          type: "text",
-          text: "Debug: Cache hit ratio 0.95, latency 150ms",
-          annotations: {
-            priority: 0.3, // Debug info is low priority
-            audience: ["assistant"], // Technical details for assistant
-          },
-        });
+        }, {relatedRequestId: extra.requestId});
       }
+    }
 
-      // Optional image with its own annotations
-      if (includeImage) {
-        content.push({
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Long running operation completed. Duration: ${duration} seconds, Steps: ${steps}.`,
+        },
+      ],
+    };
+  });
+
+  mcpServer.registerTool(ToolName.PRINT_ENV, {
+    description: "Returns the environment variables",
+    inputSchema: {}
+  }, async () => {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(process.env, null, 2),
+        },
+      ],
+    };
+  });
+
+  mcpServer.registerTool(ToolName.SAMPLE_LLM, {
+    description: "Requests a sample from an LLM via the client",
+    inputSchema: {
+      prompt: z.string().describe("The prompt to send to the LLM"),
+      maxTokens: z.number().default(100).describe("Maximum number of tokens to generate"),
+    }
+  }, async ({ prompt, maxTokens }, extra) => {
+    const result = await requestSampling(
+      prompt,
+      ToolName.SAMPLE_LLM,
+      maxTokens,
+      extra.sendRequest
+    );
+    return {
+      content: [
+        { type: "text", text: `LLM sampling result: ${result.content.text}` },
+      ],
+    };
+  });
+
+  mcpServer.registerTool(ToolName.GET_TINY_IMAGE, {
+    description: "Returns a tiny MCP logo image",
+    inputSchema: {}
+  }, async () => {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "This is a tiny image:",
+        },
+        {
           type: "image",
           data: MCP_TINY_IMAGE,
           mimeType: "image/png",
-          annotations: {
-            priority: 0.5,
-            audience: ["user"], // Images primarily for user visualization
-          },
-        });
-      }
-
-      return { content };
-    }
-
-    if (name === ToolName.GET_RESOURCE_REFERENCE) {
-      const validatedArgs = GetResourceReferenceSchema.parse(args);
-      const resourceId = validatedArgs.resourceId;
-
-      const resourceIndex = resourceId - 1;
-      if (resourceIndex < 0 || resourceIndex >= ALL_RESOURCES.length) {
-        throw new Error(`Resource with ID ${resourceId} does not exist`);
-      }
-
-      const resource = ALL_RESOURCES[resourceIndex];
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Returning resource reference for Resource ${resourceId}:`,
-          },
-          {
-            type: "resource",
-            resource: resource,
-          },
-          {
-            type: "text",
-            text: `You can access this resource using the URI: ${resource.uri}`,
-          },
-        ],
-      };
-    }
-
-    if (name === ToolName.ELICITATION) {
-      ElicitationSchema.parse(args);
-
-      const elicitationResult = await requestElicitation(
-        'What are your favorite things?',
-        {
-          type: 'object',
-          properties: {
-            color: { type: 'string', description: 'Favorite color' },
-            number: {
-              type: 'integer',
-              description: 'Favorite number',
-              minimum: 1,
-              maximum: 100,
-            },
-            pets: {
-              type: 'string',
-              enum: ['cats', 'dogs', 'birds', 'fish', 'reptiles'],
-              description: 'Favorite pets',
-            },
-          },
         },
-        extra.sendRequest
-      );
-
-      // Handle different response actions
-      const content = [];
-
-      if (elicitationResult.action === 'accept' && elicitationResult.content) {
-        content.push({
+        {
           type: "text",
-          text: `✅ User provided their favorite things!`,
-        });
+          text: "The image above is the MCP tiny image.",
+        },
+      ],
+    };
+  });
 
-        // Only access elicitationResult.content when action is accept
-        const { color, number, pets } = elicitationResult.content;
-        content.push({
-          type: "text",
-          text: `Their favorites are:\n- Color: ${color || 'not specified'}\n- Number: ${number || 'not specified'}\n- Pets: ${pets || 'not specified'}`,
-        });
-      } else if (elicitationResult.action === 'decline') {
-        content.push({
-          type: "text",
-          text: `❌ User declined to provide their favorite things.`,
-        });
-      } else if (elicitationResult.action === 'cancel') {
-        content.push({
-          type: "text",
-          text: `⚠️ User cancelled the elicitation dialog.`,
-        });
-      }
+  mcpServer.registerTool(ToolName.ANNOTATED_MESSAGE, {
+    description: "Demonstrates content annotations with priority and audience",
+    inputSchema: {
+      messageType: z.enum(["error", "success", "debug"]).describe("Type of message to demonstrate different annotation patterns"),
+      includeImage: z.boolean().default(false).describe("Whether to include an example image"),
+    }
+  }, async ({ messageType, includeImage }) => {
+    const content: any[] = [];
 
-      // Include raw result for debugging
+    // Main message with different priorities/audiences based on type
+    if (messageType === "error") {
       content.push({
         type: "text",
-        text: `\nRaw result: ${JSON.stringify(elicitationResult, null, 2)}`,
+        text: "Error: Operation failed",
+        annotations: {
+          priority: 1.0, // Errors are highest priority
+          audience: ["user", "assistant"], // Both need to know about errors
+        },
       });
-
-      return { content };
-    }
-
-    if (name === ToolName.GET_RESOURCE_LINKS) {
-      const { count } = GetResourceLinksSchema.parse(args);
-      const content = [];
-
-      // Add intro text
+    } else if (messageType === "success") {
       content.push({
         type: "text",
-        text: `Here are ${count} resource links to resources available in this server (see full output in tool response if your client does not support resource_link yet):`,
+        text: "Operation completed successfully",
+        annotations: {
+          priority: 0.7, // Success messages are important but not critical
+          audience: ["user"], // Success mainly for user consumption
+        },
       });
-
-      // Return resource links to actual resources from ALL_RESOURCES
-      const actualCount = Math.min(count, ALL_RESOURCES.length);
-      for (let i = 0; i < actualCount; i++) {
-        const resource = ALL_RESOURCES[i];
-        content.push({
-          type: "resource_link",
-          uri: resource.uri,
-          name: resource.name,
-          description: `Resource ${i + 1}: ${resource.mimeType === "text/plain"
-            ? "plaintext resource"
-            : "binary blob resource"
-            }`,
-          mimeType: resource.mimeType,
-        });
-      }
-
-      return { content };
+    } else if (messageType === "debug") {
+      content.push({
+        type: "text",
+        text: "Debug: Cache hit ratio 0.95, latency 150ms",
+        annotations: {
+          priority: 0.3, // Debug info is low priority
+          audience: ["assistant"], // Technical details for assistant
+        },
+      });
     }
 
-    if (name === ToolName.STRUCTURED_CONTENT) {
-      // The same response is returned for every input.
-      const validatedArgs = StructuredContentSchema.input.parse(args);
+    // Optional image with its own annotations
+    if (includeImage) {
+      content.push({
+        type: "image",
+        data: MCP_TINY_IMAGE,
+        mimeType: "image/png",
+        annotations: {
+          priority: 0.5,
+          audience: ["user"], // Images primarily for user visualization
+        },
+      });
+    }
 
-      const weather = {
-        temperature: 22.5,
-        conditions: "Partly cloudy",
-        humidity: 65
-      }
+    return { content };
+  });
 
-      const backwardCompatiblecontent = {
+  mcpServer.registerTool(ToolName.GET_RESOURCE_REFERENCE, {
+    description: "Returns a resource reference to a static resource",
+    inputSchema: {
+      resourceId: z.number().min(1).max(100).describe("ID of the resource to reference (1-100)"),
+    }
+  }, async ({ resourceId }) => {
+    const resourceIndex = resourceId - 1;
+    if (resourceIndex < 0 || resourceIndex >= ALL_RESOURCES.length) {
+      throw new Error(`Resource with ID ${resourceId} does not exist`);
+    }
+
+    const resource = ALL_RESOURCES[resourceIndex];
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Returning resource reference for Resource ${resourceId}:`,
+        },
+        {
+          type: "resource",
+          resource: resource as any,
+        },
+        {
+          type: "text",
+          text: `You can access this resource using the URI: ${resource.uri}`,
+        },
+      ] as any,
+    };
+  });
+
+  mcpServer.registerTool(ToolName.GET_RESOURCE_LINKS, {
+    description: "Returns resource links to static resources",
+    inputSchema: {
+      count: z.number().min(1).max(10).default(3).describe("Number of resource links to return (1-10)"),
+    }
+  }, async ({ count }) => {
+    const content: any[] = [];
+
+    // Add intro text
+    content.push({
+      type: "text",
+      text: `Here are ${count} resource links to resources available in this server (see full output in tool response if your client does not support resource_link yet):`,
+    });
+
+    // Return resource links to actual resources from ALL_RESOURCES
+    const actualCount = Math.min(count, ALL_RESOURCES.length);
+    for (let i = 0; i < actualCount; i++) {
+      const resource = ALL_RESOURCES[i];
+      content.push({
+        type: "resource_link",
+        uri: resource.uri,
+        name: resource.name,
+        description: `Resource ${i + 1}: ${resource.mimeType === "text/plain"
+          ? "plaintext resource"
+          : "binary blob resource"
+          }`,
+        mimeType: resource.mimeType,
+      });
+    }
+
+    return { content };
+  });
+
+  mcpServer.registerTool(ToolName.STRUCTURED_CONTENT, {
+    description: "Returns structured weather data with both text and typed output",
+    inputSchema: {
+      location: z.string().trim().min(1).describe("City name or zip code"),
+    },
+    outputSchema: {
+      temperature: z.number().describe("Temperature in celsius"),
+      conditions: z.string().describe("Weather conditions description"),
+      humidity: z.number().describe("Humidity percentage"),
+    }
+  }, async ({ location }) => {
+    // The same response is returned for every input.
+    const weather = {
+      temperature: 22.5,
+      conditions: "Partly cloudy",
+      humidity: 65
+    };
+
+    return {
+      content: [{
         type: "text",
         text: JSON.stringify(weather)
-      }
+      }],
+      structuredContent: weather
+    };
+  });
 
-      return {
-        content: [backwardCompatiblecontent],
-        structuredContent: weather
-      };
+  mcpServer.registerTool(ToolName.ZIP_RESOURCES, {
+    description: "Creates a zip file from multiple URLs",
+    inputSchema: {
+      files: z.record(z.string().url().describe("URL of the file to include in the zip")).describe("Mapping of file names to URLs to include in the zip"),
     }
+  }, async ({ files }) => {
+    const zip = new JSZip();
 
-    if (name === ToolName.ZIP_RESOURCES) {
-      const { files } = ZipResourcesInputSchema.parse(args);
-
-      const zip = new JSZip();
-
-      for (const [fileName, fileUrl] of Object.entries(files)) {
-        try {
-          const response = await fetch(fileUrl);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch ${fileUrl}: ${response.statusText}`);
-          }
-          const arrayBuffer = await response.arrayBuffer();
-          zip.file(fileName, arrayBuffer);
-        } catch (error) {
-          throw new Error(`Error fetching file ${fileUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    for (const [fileName, fileUrl] of Object.entries(files)) {
+      try {
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${fileUrl}: ${response.statusText}`);
         }
+        const arrayBuffer = await response.arrayBuffer();
+        zip.file(fileName, arrayBuffer);
+      } catch (error) {
+        throw new Error(`Error fetching file ${fileUrl}: ${error instanceof Error ? error.message : String(error)}`);
       }
-
-      const uri = `data:application/zip;base64,${await zip.generateAsync({ type: "base64" })}`;
-
-      return {
-        content: [
-          {
-            type: "resource_link",
-            mimeType: "application/zip",
-            uri,
-          },
-        ],
-      };
     }
 
-    if (name === ToolName.LIST_ROOTS) {
-      ListRootsSchema.parse(args);
+    const uri = `data:application/zip;base64,${await zip.generateAsync({ type: "base64" })}`;
 
-      if (!clientSupportsRoots) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "The MCP client does not support the roots protocol.\n\n" +
-                "This means the server cannot access information about the client's workspace directories or file system roots."
-            }
-          ]
-        };
-      }
+    return {
+      content: [
+        {
+          type: "resource_link",
+          uri,
+          name: "resources.zip",
+          mimeType: "application/zip",
+        },
+      ],
+    };
+  });
 
-      if (currentRoots.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "The client supports roots but no roots are currently configured.\n\n" +
-                "This could mean:\n" +
-                "1. The client hasn't provided any roots yet\n" +
-                "2. The client provided an empty roots list\n" +
-                "3. The roots configuration is still being loaded"
-            }
-          ]
-        };
-      }
+  // Conditional tools - store references to enable/disable them based on client capabilities
+  const elicitationTool = mcpServer.registerTool(ToolName.ELICITATION, {
+    description: "Demonstrates user elicitation to collect structured data",
+    inputSchema: {}
+  }, async (args, extra) => {
+    const elicitationResult = await requestElicitation(
+      'What are your favorite things?',
+      {
+        type: 'object',
+        properties: {
+          color: { type: 'string', description: 'Favorite color' },
+          number: {
+            type: 'integer',
+            description: 'Favorite number',
+            minimum: 1,
+            maximum: 100,
+          },
+          pets: {
+            type: 'string',
+            enum: ['cats', 'dogs', 'birds', 'fish', 'reptiles'],
+            description: 'Favorite pets',
+          },
+        },
+      },
+      extra.sendRequest
+    );
 
-      const rootsList = currentRoots.map((root, index) => {
-        return `${index + 1}. ${root.name || 'Unnamed Root'}\n   URI: ${root.uri}`;
-      }).join('\n\n');
+    // Handle different response actions
+    const content: any[] = [];
 
+    if (elicitationResult.action === 'accept' && elicitationResult.content) {
+      content.push({
+        type: "text",
+        text: `✅ User provided their favorite things!`,
+      });
+
+      // Only access elicitationResult.content when action is accept
+      const { color, number, pets } = elicitationResult.content;
+      content.push({
+        type: "text",
+        text: `Their favorites are:\n- Color: ${color || 'not specified'}\n- Number: ${number || 'not specified'}\n- Pets: ${pets || 'not specified'}`,
+      });
+    } else if (elicitationResult.action === 'decline') {
+      content.push({
+        type: "text",
+        text: `❌ User declined to provide their favorite things.`,
+      });
+    } else if (elicitationResult.action === 'cancel') {
+      content.push({
+        type: "text",
+        text: `⚠️ User cancelled the elicitation dialog.`,
+      });
+    }
+
+    // Include raw result for debugging
+    content.push({
+      type: "text",
+      text: `\nRaw result: ${JSON.stringify(elicitationResult, null, 2)}`,
+    });
+
+    return { content };
+  });
+
+  const listRootsTool = mcpServer.registerTool(ToolName.LIST_ROOTS, {
+    description: "Lists the current MCP roots provided by the client",
+    inputSchema: {}
+  }, async () => {
+    if (!clientSupportsRoots) {
       return {
         content: [
           {
             type: "text",
-            text: `Current MCP Roots (${currentRoots.length} total):\n\n${rootsList}\n\n` +
-              "Note: This server demonstrates the roots protocol capability but doesn't actually access files. " +
-              "The roots are provided by the MCP client and can be used by servers that need file system access."
+            text: "The MCP client does not support the roots protocol.\n\n" +
+              "This means the server cannot access information about the client's workspace directories or file system roots."
           }
         ]
       };
     }
 
-    throw new Error(`Unknown tool: ${name}`);
+    if (currentRoots.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "The client supports roots but no roots are currently configured.\n\n" +
+              "This could mean:\n" +
+              "1. The client hasn't provided any roots yet\n" +
+              "2. The client provided an empty roots list\n" +
+              "3. The roots configuration is still being loaded"
+          }
+        ]
+      };
+    }
+
+    const rootsList = currentRoots.map((root, index) => {
+      return `${index + 1}. ${root.name || 'Unnamed Root'}\n   URI: ${root.uri}`;
+    }).join('\n\n');
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Current MCP Roots (${currentRoots.length} total):\n\n${rootsList}\n\n` +
+            "Note: This server demonstrates the roots protocol capability but doesn't actually access files. " +
+            "The roots are provided by the MCP client and can be used by servers that need file system access."
+        }
+      ]
+    };
   });
+
+  // Disable conditional tools initially - they'll be enabled in oninitialized
+  elicitationTool.disable();
+  listRootsTool.disable();
+
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
     const { ref, argument } = request.params;
@@ -988,12 +941,29 @@ export const createServer = () => {
     }
   });
 
-  // Handle post-initialization setup for roots
+  // Handle post-initialization setup for roots and conditional tools
   server.oninitialized = async () => {
    clientCapabilities = server.getClientCapabilities();
 
+    // Enable conditional tools based on client capabilities
+    if (clientCapabilities?.experimental?.elicitation) {
+      elicitationTool.enable();
+      await server.sendLoggingMessage({
+          level: "info",
+          logger: "everything-server",
+          data: "Client supports elicitation - enabling ELICITATION tool",
+      }, sessionId);
+    }
+
     if (clientCapabilities?.roots) {
       clientSupportsRoots = true;
+      listRootsTool.enable();
+      await server.sendLoggingMessage({
+          level: "info",
+          logger: "everything-server",
+          data: "Client supports roots - enabling LIST_ROOTS tool",
+      }, sessionId);
+
       try {
         const response = await server.listRoots();
         if (response && 'roots' in response) {
