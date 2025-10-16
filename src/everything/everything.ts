@@ -7,8 +7,6 @@ import {
   CreateMessageResultSchema,
   ElicitRequest,
   ElicitResultSchema,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   LoggingLevel,
@@ -352,122 +350,92 @@ export const createServer = () => {
     return {};
   });
 
-  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  // Register prompts with McpServer
+  mcpServer.registerPrompt(PromptName.SIMPLE, {
+    description: "A prompt without arguments"
+  }, async () => {
     return {
-      prompts: [
+      messages: [
         {
-          name: PromptName.SIMPLE,
-          description: "A prompt without arguments",
-        },
-        {
-          name: PromptName.COMPLEX,
-          description: "A prompt with arguments",
-          arguments: [
-            {
-              name: "temperature",
-              description: "Temperature setting",
-              required: true,
-            },
-            {
-              name: "style",
-              description: "Output style",
-              required: false,
-            },
-          ],
-        },
-        {
-          name: PromptName.RESOURCE,
-          description: "A prompt that includes an embedded resource reference",
-          arguments: [
-            {
-              name: "resourceId",
-              description: "Resource ID to include (1-100)",
-              required: true,
-            },
-          ],
+          role: "user",
+          content: {
+            type: "text",
+            text: "This is a simple prompt without arguments.",
+          },
         },
       ],
     };
   });
 
-  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
-    if (name === PromptName.SIMPLE) {
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: "This is a simple prompt without arguments.",
-            },
+  mcpServer.registerPrompt(PromptName.COMPLEX, {
+    description: "A prompt with arguments",
+    argsSchema: {
+      temperature: z.string().describe("Temperature setting"),
+      style: z.string().optional().describe("Output style"),
+    }
+  }, async ({ temperature, style }) => {
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `This is a complex prompt with arguments: temperature=${temperature}, style=${style}`,
           },
-        ],
-      };
+        },
+        {
+          role: "assistant",
+          content: {
+            type: "text",
+            text: "I understand. You've provided a complex prompt with temperature and style arguments. How would you like me to proceed?",
+          },
+        },
+        {
+          role: "user",
+          content: {
+            type: "image",
+            data: MCP_TINY_IMAGE,
+            mimeType: "image/png",
+          },
+        },
+      ],
+    };
+  });
+
+  mcpServer.registerPrompt(PromptName.RESOURCE, {
+    description: "A prompt that includes an embedded resource reference",
+    argsSchema: {
+      resourceId: z.string().describe("Resource ID to include (1-100)"),
+    }
+  }, async ({ resourceId }) => {
+    const parsedId = parseInt(resourceId, 10);
+    if (isNaN(parsedId) || parsedId < 1 || parsedId > 100) {
+      throw new Error(
+        `Invalid resourceId: ${resourceId}. Must be a number between 1 and 100.`
+      );
     }
 
-    if (name === PromptName.COMPLEX) {
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `This is a complex prompt with arguments: temperature=${args?.temperature}, style=${args?.style}`,
-            },
-          },
-          {
-            role: "assistant",
-            content: {
-              type: "text",
-              text: "I understand. You've provided a complex prompt with temperature and style arguments. How would you like me to proceed?",
-            },
-          },
-          {
-            role: "user",
-            content: {
-              type: "image",
-              data: MCP_TINY_IMAGE,
-              mimeType: "image/png",
-            },
-          },
-        ],
-      };
-    }
+    const resourceIndex = parsedId - 1;
+    const resource = ALL_RESOURCES[resourceIndex];
 
-    if (name === PromptName.RESOURCE) {
-      const resourceId = parseInt(args?.resourceId as string, 10);
-      if (isNaN(resourceId) || resourceId < 1 || resourceId > 100) {
-        throw new Error(
-          `Invalid resourceId: ${args?.resourceId}. Must be a number between 1 and 100.`
-        );
-      }
-
-      const resourceIndex = resourceId - 1;
-      const resource = ALL_RESOURCES[resourceIndex];
-
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `This prompt includes Resource ${resourceId}. Please analyze the following resource:`,
-            },
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `This prompt includes Resource ${parsedId}. Please analyze the following resource:`,
           },
-          {
-            role: "user",
-            content: {
-              type: "resource",
-              resource: resource,
-            },
+        },
+        {
+          role: "user" as const,
+          content: {
+            type: "resource" as const,
+            resource: resource,
           },
-        ],
-      };
-    }
-
-    throw new Error(`Unknown prompt: ${name}`);
+        },
+      ],
+    };
   });
 
   // Register tools with McpServer
