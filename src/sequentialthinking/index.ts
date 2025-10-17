@@ -3,8 +3,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 // Fixed chalk import for ESM
@@ -255,22 +253,13 @@ const server = new Server(
 
 const thinkingServer = new SequentialThinkingServer();
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [SEQUENTIAL_THINKING_TOOL],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name === "sequentialthinking") {
-    return thinkingServer.processThought(request.params.arguments);
+server.registerTool({
+  name: SEQUENTIAL_THINKING_TOOL.name,
+  description: SEQUENTIAL_THINKING_TOOL.description,
+  inputSchema: SEQUENTIAL_THINKING_TOOL.inputSchema,
+  handler: async (args) => {
+    return thinkingServer.processThought(args);
   }
-
-  return {
-    content: [{
-      type: "text",
-      text: `Unknown tool: ${request.params.name}`
-    }],
-    isError: true
-  };
 });
 
 async function runServer() {

@@ -1,25 +1,17 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
-  CallToolRequestSchema,
   ClientCapabilities,
   CompleteRequestSchema,
   CreateMessageRequest,
   CreateMessageResultSchema,
   ElicitResultSchema,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
-  ListResourcesRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  ListToolsRequestSchema,
   LoggingLevel,
-  ReadResourceRequestSchema,
   Resource,
   RootsListChangedNotificationSchema,
   ServerNotification,
   ServerRequest,
   SubscribeRequestSchema,
-  Tool,
   ToolSchema,
   UnsubscribeRequestSchema,
   type Root
@@ -280,57 +272,17 @@ export const createServer = () => {
 
   const PAGE_SIZE = 10;
 
-  server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
-    const cursor = request.params?.cursor;
-    let startIndex = 0;
-
-    if (cursor) {
-      const decodedCursor = parseInt(atob(cursor), 10);
-      if (!isNaN(decodedCursor)) {
-        startIndex = decodedCursor;
+  // Register all resources dynamically
+  ALL_RESOURCES.forEach(resource => {
+    server.registerResource({
+      uri: resource.uri,
+      name: resource.name,
+      mimeType: resource.mimeType,
+      description: `Static resource ${resource.name}`,
+      handler: async () => {
+        return resource.text ? { text: resource.text } : { blob: resource.blob };
       }
-    }
-
-    const endIndex = Math.min(startIndex + PAGE_SIZE, ALL_RESOURCES.length);
-    const resources = ALL_RESOURCES.slice(startIndex, endIndex);
-
-    let nextCursor: string | undefined;
-    if (endIndex < ALL_RESOURCES.length) {
-      nextCursor = btoa(endIndex.toString());
-    }
-
-    return {
-      resources,
-      nextCursor,
-    };
-  });
-
-  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-    return {
-      resourceTemplates: [
-        {
-          uriTemplate: "test://static/resource/{id}",
-          name: "Static Resource",
-          description: "A static resource with a numeric ID",
-        },
-      ],
-    };
-  });
-
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const uri = request.params.uri;
-
-    if (uri.startsWith("test://static/resource/")) {
-      const index = parseInt(uri.split("/").pop() ?? "", 10) - 1;
-      if (index >= 0 && index < ALL_RESOURCES.length) {
-        const resource = ALL_RESOURCES[index];
-        return {
-          contents: [resource],
-        };
-      }
-    }
-
-    throw new Error(`Unknown resource: ${uri}`);
+    });
   });
 
   server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
@@ -344,48 +296,11 @@ export const createServer = () => {
     return {};
   });
 
-  server.setRequestHandler(ListPromptsRequestSchema, async () => {
-    return {
-      prompts: [
-        {
-          name: PromptName.SIMPLE,
-          description: "A prompt without arguments",
-        },
-        {
-          name: PromptName.COMPLEX,
-          description: "A prompt with arguments",
-          arguments: [
-            {
-              name: "temperature",
-              description: "Temperature setting",
-              required: true,
-            },
-            {
-              name: "style",
-              description: "Output style",
-              required: false,
-            },
-          ],
-        },
-        {
-          name: PromptName.RESOURCE,
-          description: "A prompt that includes an embedded resource reference",
-          arguments: [
-            {
-              name: "resourceId",
-              description: "Resource ID to include (1-100)",
-              required: true,
-            },
-          ],
-        },
-      ],
-    };
-  });
-
-  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
-    if (name === PromptName.SIMPLE) {
+  // Register prompts
+  server.registerPrompt({
+    name: PromptName.SIMPLE,
+    description: "A prompt without arguments",
+    handler: async () => {
       return {
         messages: [
           {
@@ -398,8 +313,24 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === PromptName.COMPLEX) {
+  server.registerPrompt({
+    name: PromptName.COMPLEX,
+    description: "A prompt with arguments",
+    arguments: [
+      {
+        name: "temperature",
+        description: "Temperature setting",
+        required: true,
+      },
+      {
+        name: "style",
+        description: "Output style",
+        required: false,
+      },
+    ],
+    handler: async (args) => {
       return {
         messages: [
           {
@@ -427,8 +358,19 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === PromptName.RESOURCE) {
+  server.registerPrompt({
+    name: PromptName.RESOURCE,
+    description: "A prompt that includes an embedded resource reference",
+    arguments: [
+      {
+        name: "resourceId",
+        description: "Resource ID to include (1-100)",
+        required: true,
+      },
+    ],
+    handler: async (args) => {
       const resourceId = parseInt(args?.resourceId as string, 10);
       if (isNaN(resourceId) || resourceId < 1 || resourceId > 100) {
         throw new Error(
@@ -458,101 +400,26 @@ export const createServer = () => {
         ],
       };
     }
-
-    throw new Error(`Unknown prompt: ${name}`);
   });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools: Tool[] = [
-      {
-        name: ToolName.ECHO,
-        description: "Echoes back the input",
-        inputSchema: zodToJsonSchema(EchoSchema) as ToolInput,
-      },
-      {
-        name: ToolName.ADD,
-        description: "Adds two numbers",
-        inputSchema: zodToJsonSchema(AddSchema) as ToolInput,
-      },
-      {
-        name: ToolName.LONG_RUNNING_OPERATION,
-        description:
-          "Demonstrates a long running operation with progress updates",
-        inputSchema: zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
-      },
-      {
-        name: ToolName.PRINT_ENV,
-        description:
-          "Prints all environment variables, helpful for debugging MCP server configuration",
-        inputSchema: zodToJsonSchema(PrintEnvSchema) as ToolInput,
-      },
-      {
-        name: ToolName.SAMPLE_LLM,
-        description: "Samples from an LLM using MCP's sampling feature",
-        inputSchema: zodToJsonSchema(SampleLLMSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_TINY_IMAGE,
-        description: "Returns the MCP_TINY_IMAGE",
-        inputSchema: zodToJsonSchema(GetTinyImageSchema) as ToolInput,
-      },
-      {
-        name: ToolName.ANNOTATED_MESSAGE,
-        description:
-          "Demonstrates how annotations can be used to provide metadata about content",
-        inputSchema: zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_RESOURCE_REFERENCE,
-        description:
-          "Returns a resource reference that can be used by MCP clients",
-        inputSchema: zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
-      },
-      {
-        name: ToolName.GET_RESOURCE_LINKS,
-        description:
-          "Returns multiple resource links that reference different types of resources",
-        inputSchema: zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
-      },
-      {
-        name: ToolName.STRUCTURED_CONTENT,
-        description:
-          "Returns structured content along with an output schema for client data validation",
-        inputSchema: zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
-        outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
-      },
-      {
-        name: ToolName.ZIP_RESOURCES,
-        description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
-        inputSchema: zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
-      }
-    ];
-    if (clientCapabilities!.roots) tools.push ({
-        name: ToolName.LIST_ROOTS,
-        description:
-            "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
-        inputSchema: zodToJsonSchema(ListRootsSchema) as ToolInput,
-    });
-    if (clientCapabilities!.elicitation) tools.push ({
-        name: ToolName.ELICITATION,
-        description: "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
-        inputSchema: zodToJsonSchema(ElicitationSchema) as ToolInput,
-    });
-
-    return { tools };
-  });
-
-  server.setRequestHandler(CallToolRequestSchema, async (request,extra) => {
-    const { name, arguments: args } = request.params;
-
-    if (name === ToolName.ECHO) {
+  // Register tools
+  server.registerTool({
+    name: ToolName.ECHO,
+    description: "Echoes back the input",
+    inputSchema: zodToJsonSchema(EchoSchema) as ToolInput,
+    handler: async (args) => {
       const validatedArgs = EchoSchema.parse(args);
       return {
         content: [{ type: "text", text: `Echo: ${validatedArgs.message}` }],
       };
     }
+  });
 
-    if (name === ToolName.ADD) {
+  server.registerTool({
+    name: ToolName.ADD,
+    description: "Adds two numbers",
+    inputSchema: zodToJsonSchema(AddSchema) as ToolInput,
+    handler: async (args) => {
       const validatedArgs = AddSchema.parse(args);
       const sum = validatedArgs.a + validatedArgs.b;
       return {
@@ -564,12 +431,17 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.LONG_RUNNING_OPERATION) {
+  server.registerTool({
+    name: ToolName.LONG_RUNNING_OPERATION,
+    description: "Demonstrates a long running operation with progress updates",
+    inputSchema: zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
+    handler: async (args, extra) => {
       const validatedArgs = LongRunningOperationSchema.parse(args);
       const { duration, steps } = validatedArgs;
       const stepDuration = duration / steps;
-      const progressToken = request.params._meta?.progressToken;
+      const progressToken = extra.request.params._meta?.progressToken;
 
       for (let i = 1; i < steps + 1; i++) {
         await new Promise((resolve) =>
@@ -597,8 +469,13 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.PRINT_ENV) {
+  server.registerTool({
+    name: ToolName.PRINT_ENV,
+    description: "Prints all environment variables, helpful for debugging MCP server configuration",
+    inputSchema: zodToJsonSchema(PrintEnvSchema) as ToolInput,
+    handler: async () => {
       return {
         content: [
           {
@@ -608,8 +485,13 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.SAMPLE_LLM) {
+  server.registerTool({
+    name: ToolName.SAMPLE_LLM,
+    description: "Samples from an LLM using MCP's sampling feature",
+    inputSchema: zodToJsonSchema(SampleLLMSchema) as ToolInput,
+    handler: async (args, extra) => {
       const validatedArgs = SampleLLMSchema.parse(args);
       const { prompt, maxTokens } = validatedArgs;
 
@@ -625,8 +507,13 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.GET_TINY_IMAGE) {
+  server.registerTool({
+    name: ToolName.GET_TINY_IMAGE,
+    description: "Returns the MCP_TINY_IMAGE",
+    inputSchema: zodToJsonSchema(GetTinyImageSchema) as ToolInput,
+    handler: async (args) => {
       GetTinyImageSchema.parse(args);
       return {
         content: [
@@ -646,8 +533,13 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.ANNOTATED_MESSAGE) {
+  server.registerTool({
+    name: ToolName.ANNOTATED_MESSAGE,
+    description: "Demonstrates how annotations can be used to provide metadata about content",
+    inputSchema: zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
+    handler: async (args) => {
       const { messageType, includeImage } = AnnotatedMessageSchema.parse(args);
 
       const content = [];
@@ -697,8 +589,13 @@ export const createServer = () => {
 
       return { content };
     }
+  });
 
-    if (name === ToolName.GET_RESOURCE_REFERENCE) {
+  server.registerTool({
+    name: ToolName.GET_RESOURCE_REFERENCE,
+    description: "Returns a resource reference that can be used by MCP clients",
+    inputSchema: zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
+    handler: async (args) => {
       const validatedArgs = GetResourceReferenceSchema.parse(args);
       const resourceId = validatedArgs.resourceId;
 
@@ -726,128 +623,13 @@ export const createServer = () => {
         ],
       };
     }
+  });
 
-    if (name === ToolName.ELICITATION) {
-      ElicitationSchema.parse(args);
-
-      const elicitationResult = await extra.sendRequest({
-        method: 'elicitation/create',
-        params: {
-          message: 'Please provide inputs for the following fields:',
-          requestedSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                title: 'Full Name',
-                type: 'string',
-                description: 'Your full, legal name',
-              },
-              check: {
-                title: 'Agree to terms',
-                type: 'boolean',
-                description: 'A boolean check',
-              },
-              color: {
-                title: 'Favorite Color',
-                type: 'string',
-                description: 'Favorite color (open text)',
-                default: 'blue',
-              },
-              email: {
-                title: 'Email Address',
-                type: 'string',
-                format: 'email',
-                description: 'Your email address (will be verified, and never shared with anyone else)',
-              },
-              homepage: {
-                type: 'string',
-                format: 'uri',
-                description: 'Homepage / personal site',
-              },
-              birthdate: {
-                title: 'Birthdate',
-                type: 'string',
-                format: 'date',
-                description: 'Your date of birth (will never be shared with anyone else)',
-              },
-              integer: {
-                title: 'Favorite Integer',
-                type: 'integer',
-                description: 'Your favorite integer (do not give us your phone number, pin, or other sensitive info)',
-                minimum: 1,
-                maximum: 100,
-                default: 42,
-              },
-              number: {
-                title: 'Favorite Number',
-                type: 'number',
-                description: 'Favorite number (there are no wrong answers)',
-                minimum: 0,
-                maximum: 1000,
-                default: 3.14,
-              },
-              petType: {
-                title: 'Pet type',
-                type: 'string',
-                enum: ['cats', 'dogs', 'birds', 'fish', 'reptiles'],
-                enumNames: ['Cats', 'Dogs', 'Birds', 'Fish', 'Reptiles'],
-                default: 'dogs',
-                description: 'Your favorite pet type',
-              },
-            },
-            required: ['name'],
-          },
-        },
-      }, ElicitResultSchema, { timeout: 10 * 60 * 1000 /* 10 minutes */ });
-
-      // Handle different response actions
-      const content = [];
-
-      if (elicitationResult.action === 'accept' && elicitationResult.content) {
-        content.push({
-          type: "text",
-          text: `✅ User provided the requested information!`,
-        });
-
-        // Only access elicitationResult.content when action is accept
-        const userData = elicitationResult.content;
-        const lines = [];
-        if (userData.name) lines.push(`- Name: ${userData.name}`);
-        if (userData.check !== undefined) lines.push(`- Agreed to terms: ${userData.check}`);
-        if (userData.color) lines.push(`- Favorite Color: ${userData.color}`);
-        if (userData.email) lines.push(`- Email: ${userData.email}`);
-        if (userData.homepage) lines.push(`- Homepage: ${userData.homepage}`);
-        if (userData.birthdate) lines.push(`- Birthdate: ${userData.birthdate}`);
-        if (userData.integer !== undefined) lines.push(`- Favorite Integer: ${userData.integer}`);
-        if (userData.number !== undefined) lines.push(`- Favorite Number: ${userData.number}`);
-        if (userData.petType) lines.push(`- Pet Type: ${userData.petType}`);
-
-        content.push({
-          type: "text",
-          text: `User inputs:\n${lines.join('\n')}`,
-        });
-      } else if (elicitationResult.action === 'decline') {
-        content.push({
-          type: "text",
-          text: `❌ User declined to provide the requested information.`,
-        });
-      } else if (elicitationResult.action === 'cancel') {
-        content.push({
-          type: "text",
-          text: `⚠️ User cancelled the elicitation dialog.`,
-        });
-      }
-
-      // Include raw result for debugging
-      content.push({
-        type: "text",
-        text: `\nRaw result: ${JSON.stringify(elicitationResult, null, 2)}`,
-      });
-
-      return { content };
-    }
-
-    if (name === ToolName.GET_RESOURCE_LINKS) {
+  server.registerTool({
+    name: ToolName.GET_RESOURCE_LINKS,
+    description: "Returns multiple resource links that reference different types of resources",
+    inputSchema: zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
+    handler: async (args) => {
       const { count } = GetResourceLinksSchema.parse(args);
       const content = [];
 
@@ -875,8 +657,14 @@ export const createServer = () => {
 
       return { content };
     }
+  });
 
-    if (name === ToolName.STRUCTURED_CONTENT) {
+  server.registerTool({
+    name: ToolName.STRUCTURED_CONTENT,
+    description: "Returns structured content along with an output schema for client data validation",
+    inputSchema: zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
+    outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
+    handler: async (args) => {
       // The same response is returned for every input.
       const validatedArgs = StructuredContentSchema.input.parse(args);
 
@@ -896,8 +684,13 @@ export const createServer = () => {
         structuredContent: weather
       };
     }
+  });
 
-    if (name === ToolName.ZIP_RESOURCES) {
+  server.registerTool({
+    name: ToolName.ZIP_RESOURCES,
+    description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
+    inputSchema: zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
+    handler: async (args) => {
       const { files } = ZipResourcesInputSchema.parse(args);
 
       const zip = new JSZip();
@@ -927,54 +720,6 @@ export const createServer = () => {
         ],
       };
     }
-
-    if (name === ToolName.LIST_ROOTS) {
-      ListRootsSchema.parse(args);
-
-      if (!clientSupportsRoots) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "The MCP client does not support the roots protocol.\n\n" +
-                "This means the server cannot access information about the client's workspace directories or file system roots."
-            }
-          ]
-        };
-      }
-
-      if (currentRoots.length === 0) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "The client supports roots but no roots are currently configured.\n\n" +
-                "This could mean:\n" +
-                "1. The client hasn't provided any roots yet\n" +
-                "2. The client provided an empty roots list\n" +
-                "3. The roots configuration is still being loaded"
-            }
-          ]
-        };
-      }
-
-      const rootsList = currentRoots.map((root, index) => {
-        return `${index + 1}. ${root.name || 'Unnamed Root'}\n   URI: ${root.uri}`;
-      }).join('\n\n');
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Current MCP Roots (${currentRoots.length} total):\n\n${rootsList}\n\n` +
-              "Note: This server demonstrates the roots protocol capability but doesn't actually access files. " +
-              "The roots are provided by the MCP client and can be used by servers that need file system access."
-          }
-        ]
-      };
-    }
-
-    throw new Error(`Unknown tool: ${name}`);
   });
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
@@ -1030,12 +775,66 @@ export const createServer = () => {
     }
   });
 
-  // Handle post-initialization setup for roots
+  // Handle post-initialization setup for roots and conditional tools
   server.oninitialized = async () => {
    clientCapabilities = server.getClientCapabilities();
 
+    // Register conditional tools based on client capabilities
     if (clientCapabilities?.roots) {
       clientSupportsRoots = true;
+
+      // Register LIST_ROOTS tool
+      server.registerTool({
+        name: ToolName.LIST_ROOTS,
+        description: "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
+        inputSchema: zodToJsonSchema(ListRootsSchema) as ToolInput,
+        handler: async (args) => {
+          ListRootsSchema.parse(args);
+
+          if (!clientSupportsRoots) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "The MCP client does not support the roots protocol.\n\n" +
+                    "This means the server cannot access information about the client's workspace directories or file system roots."
+                }
+              ]
+            };
+          }
+
+          if (currentRoots.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "The client supports roots but no roots are currently configured.\n\n" +
+                    "This could mean:\n" +
+                    "1. The client hasn't provided any roots yet\n" +
+                    "2. The client provided an empty roots list\n" +
+                    "3. The roots configuration is still being loaded"
+                }
+              ]
+            };
+          }
+
+          const rootsList = currentRoots.map((root, index) => {
+            return `${index + 1}. ${root.name || 'Unnamed Root'}\n   URI: ${root.uri}`;
+          }).join('\n\n');
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Current MCP Roots (${currentRoots.length} total):\n\n${rootsList}\n\n` +
+                  "Note: This server demonstrates the roots protocol capability but doesn't actually access files. " +
+                  "The roots are provided by the MCP client and can be used by servers that need file system access."
+              }
+            ]
+          };
+        }
+      });
+
       try {
         const response = await server.listRoots();
         if (response && 'roots' in response) {
@@ -1066,6 +865,134 @@ export const createServer = () => {
           logger: "everything-server",
           data: "Client does not support MCP roots protocol",
       }, sessionId);
+    }
+
+    if (clientCapabilities?.elicitation) {
+      // Register ELICITATION tool
+      server.registerTool({
+        name: ToolName.ELICITATION,
+        description: "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
+        inputSchema: zodToJsonSchema(ElicitationSchema) as ToolInput,
+        handler: async (args, extra) => {
+          ElicitationSchema.parse(args);
+
+          const elicitationResult = await extra.sendRequest({
+            method: 'elicitation/create',
+            params: {
+              message: 'Please provide inputs for the following fields:',
+              requestedSchema: {
+                type: 'object',
+                properties: {
+                  name: {
+                    title: 'Full Name',
+                    type: 'string',
+                    description: 'Your full, legal name',
+                  },
+                  check: {
+                    title: 'Agree to terms',
+                    type: 'boolean',
+                    description: 'A boolean check',
+                  },
+                  color: {
+                    title: 'Favorite Color',
+                    type: 'string',
+                    description: 'Favorite color (open text)',
+                    default: 'blue',
+                  },
+                  email: {
+                    title: 'Email Address',
+                    type: 'string',
+                    format: 'email',
+                    description: 'Your email address (will be verified, and never shared with anyone else)',
+                  },
+                  homepage: {
+                    type: 'string',
+                    format: 'uri',
+                    description: 'Homepage / personal site',
+                  },
+                  birthdate: {
+                    title: 'Birthdate',
+                    type: 'string',
+                    format: 'date',
+                    description: 'Your date of birth (will never be shared with anyone else)',
+                  },
+                  integer: {
+                    title: 'Favorite Integer',
+                    type: 'integer',
+                    description: 'Your favorite integer (do not give us your phone number, pin, or other sensitive info)',
+                    minimum: 1,
+                    maximum: 100,
+                    default: 42,
+                  },
+                  number: {
+                    title: 'Favorite Number',
+                    type: 'number',
+                    description: 'Favorite number (there are no wrong answers)',
+                    minimum: 0,
+                    maximum: 1000,
+                    default: 3.14,
+                  },
+                  petType: {
+                    title: 'Pet type',
+                    type: 'string',
+                    enum: ['cats', 'dogs', 'birds', 'fish', 'reptiles'],
+                    enumNames: ['Cats', 'Dogs', 'Birds', 'Fish', 'Reptiles'],
+                    default: 'dogs',
+                    description: 'Your favorite pet type',
+                  },
+                },
+                required: ['name'],
+              },
+            },
+          }, ElicitResultSchema, { timeout: 10 * 60 * 1000 /* 10 minutes */ });
+
+          // Handle different response actions
+          const content = [];
+
+          if (elicitationResult.action === 'accept' && elicitationResult.content) {
+            content.push({
+              type: "text",
+              text: `✅ User provided the requested information!`,
+            });
+
+            // Only access elicitationResult.content when action is accept
+            const userData = elicitationResult.content;
+            const lines = [];
+            if (userData.name) lines.push(`- Name: ${userData.name}`);
+            if (userData.check !== undefined) lines.push(`- Agreed to terms: ${userData.check}`);
+            if (userData.color) lines.push(`- Favorite Color: ${userData.color}`);
+            if (userData.email) lines.push(`- Email: ${userData.email}`);
+            if (userData.homepage) lines.push(`- Homepage: ${userData.homepage}`);
+            if (userData.birthdate) lines.push(`- Birthdate: ${userData.birthdate}`);
+            if (userData.integer !== undefined) lines.push(`- Favorite Integer: ${userData.integer}`);
+            if (userData.number !== undefined) lines.push(`- Favorite Number: ${userData.number}`);
+            if (userData.petType) lines.push(`- Pet Type: ${userData.petType}`);
+
+            content.push({
+              type: "text",
+              text: `User inputs:\n${lines.join('\n')}`,
+            });
+          } else if (elicitationResult.action === 'decline') {
+            content.push({
+              type: "text",
+              text: `❌ User declined to provide the requested information.`,
+            });
+          } else if (elicitationResult.action === 'cancel') {
+            content.push({
+              type: "text",
+              text: `⚠️ User cancelled the elicitation dialog.`,
+            });
+          }
+
+          // Include raw result for debugging
+          content.push({
+            type: "text",
+            text: `\nRaw result: ${JSON.stringify(elicitationResult, null, 2)}`,
+          });
+
+          return { content };
+        }
+      });
     }
   };
 
