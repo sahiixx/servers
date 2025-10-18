@@ -12,12 +12,10 @@ import {
   ServerNotification,
   ServerRequest,
   SubscribeRequestSchema,
-  ToolSchema,
   UnsubscribeRequestSchema,
   type Root
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -26,12 +24,6 @@ import JSZip from "jszip";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const instructions = readFileSync(join(__dirname, "instructions.md"), "utf-8");
-
-const ToolInputSchema = ToolSchema.shape.inputSchema;
-type ToolInput = z.infer<typeof ToolInputSchema>;
-
-const ToolOutputSchema = ToolSchema.shape.outputSchema;
-type ToolOutput = z.infer<typeof ToolOutputSchema>;
 
 type SendRequest = RequestHandlerExtra<ServerRequest, ServerNotification>["sendRequest"];
 
@@ -183,7 +175,7 @@ export const createServer = () => {
       if (!subsUpdateInterval) {
         subsUpdateInterval = setInterval(() => {
           for (const uri of subscriptions) {
-            server.notification({
+            server.server.notification({
               method: "notifications/resources/updated",
               params: { uri },
             });
@@ -265,33 +257,37 @@ export const createServer = () => {
 
   // Register all resources dynamically
   ALL_RESOURCES.forEach(resource => {
-    server.resource(
-      resource.uri,
+    server.registerResource(
       resource.name,
-      resource.mimeType,
-      `Static resource ${resource.name}`,
+      resource.uri,
+      {
+        mimeType: resource.mimeType,
+        description: `Static resource ${resource.name}`
+      },
       async () => {
         return resource.text ? { text: resource.text } : { blob: resource.blob };
       }
     );
   });
 
-  server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
+  server.server.setRequestHandler(SubscribeRequestSchema, async (request: any, extra: any) => {
     const { uri } = request.params;
     subscriptions.add(uri);
     return {};
   });
 
-  server.setRequestHandler(UnsubscribeRequestSchema, async (request) => {
+  server.server.setRequestHandler(UnsubscribeRequestSchema, async (request: any) => {
     subscriptions.delete(request.params.uri);
     return {};
   });
 
   // Register prompts
-  server.prompt(
+  server.registerPrompt(
     PromptName.SIMPLE,
-    "A prompt without arguments",
-    {},
+    {
+      description: "A prompt without arguments",
+      argsSchema: z.object({}).shape
+    },
     async () => {
       return {
         messages: [
@@ -307,24 +303,16 @@ export const createServer = () => {
     }
   );
 
-  server.prompt(
+  server.registerPrompt(
     PromptName.COMPLEX,
-    "A prompt with arguments",
     {
-      type: "object",
-      properties: {
-        temperature: {
-          type: "string",
-          description: "Temperature setting"
-        },
-        style: {
-          type: "string",
-          description: "Output style"
-        }
-      },
-      required: ["temperature"]
+      description: "A prompt with arguments",
+      argsSchema: z.object({
+        temperature: z.string().describe("Temperature setting"),
+        style: z.string().optional().describe("Output style")
+      }).shape
     },
-    async (args) => {
+    async (args: any) => {
       return {
         messages: [
           {
@@ -354,20 +342,15 @@ export const createServer = () => {
     }
   );
 
-  server.prompt(
+  server.registerPrompt(
     PromptName.RESOURCE,
-    "A prompt that includes an embedded resource reference",
     {
-      type: "object",
-      properties: {
-        resourceId: {
-          type: "string",
-          description: "Resource ID to include (1-100)"
-        }
-      },
-      required: ["resourceId"]
+      description: "A prompt that includes an embedded resource reference",
+      argsSchema: z.object({
+        resourceId: z.string().describe("Resource ID to include (1-100)")
+      }).shape
     },
-    async (args) => {
+    async (args: any) => {
       const resourceId = parseInt(args?.resourceId as string, 10);
       if (isNaN(resourceId) || resourceId < 1 || resourceId > 100) {
         throw new Error(
@@ -400,11 +383,13 @@ export const createServer = () => {
   );
 
   // Register tools
-  server.tool(
+  server.registerTool(
     ToolName.ECHO,
-    "Echoes back the input",
-    zodToJsonSchema(EchoSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Echoes back the input",
+      inputSchema: EchoSchema.shape
+    },
+    async (args: any) => {
       const validatedArgs = EchoSchema.parse(args);
       return {
         content: [{ type: "text", text: `Echo: ${validatedArgs.message}` }],
@@ -412,11 +397,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.ADD,
-    "Adds two numbers",
-    zodToJsonSchema(AddSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Adds two numbers",
+      inputSchema: AddSchema.shape
+    },
+    async (args: any) => {
       const validatedArgs = AddSchema.parse(args);
       const sum = validatedArgs.a + validatedArgs.b;
       return {
@@ -430,15 +417,17 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.LONG_RUNNING_OPERATION,
-    "Demonstrates a long running operation with progress updates",
-    zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
-    async (args, extra) => {
+    {
+      description: "Demonstrates a long running operation with progress updates",
+      inputSchema: LongRunningOperationSchema.shape
+    },
+    async (args, extra: any) => {
       const validatedArgs = LongRunningOperationSchema.parse(args);
       const { duration, steps } = validatedArgs;
       const stepDuration = duration / steps;
-      const progressToken = extra.request.params._meta?.progressToken;
+      const progressToken = extra.request?.params?._meta?.progressToken;
 
       for (let i = 1; i < steps + 1; i++) {
         await new Promise((resolve) =>
@@ -446,7 +435,7 @@ export const createServer = () => {
         );
 
         if (progressToken !== undefined) {
-          await server.notification({
+          await server.server.notification({
             method: "notifications/progress",
             params: {
               progress: i,
@@ -468,10 +457,12 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.PRINT_ENV,
-    "Prints all environment variables, helpful for debugging MCP server configuration",
-    zodToJsonSchema(PrintEnvSchema) as ToolInput,
+    {
+      description: "Prints all environment variables, helpful for debugging MCP server configuration",
+      inputSchema: PrintEnvSchema.shape
+    },
     async () => {
       return {
         content: [
@@ -484,11 +475,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.SAMPLE_LLM,
-    "Samples from an LLM using MCP's sampling feature",
-    zodToJsonSchema(SampleLLMSchema) as ToolInput,
-    async (args, extra) => {
+    {
+      description: "Samples from an LLM using MCP's sampling feature",
+      inputSchema: SampleLLMSchema.shape
+    },
+    async (args, extra: any) => {
       const validatedArgs = SampleLLMSchema.parse(args);
       const { prompt, maxTokens } = validatedArgs;
 
@@ -506,11 +499,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.GET_TINY_IMAGE,
-    "Returns the MCP_TINY_IMAGE",
-    zodToJsonSchema(GetTinyImageSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Returns the MCP_TINY_IMAGE",
+      inputSchema: GetTinyImageSchema.shape
+    },
+    async (args: any) => {
       GetTinyImageSchema.parse(args);
       return {
         content: [
@@ -532,11 +527,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.ANNOTATED_MESSAGE,
-    "Demonstrates how annotations can be used to provide metadata about content",
-    zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Demonstrates how annotations can be used to provide metadata about content",
+      inputSchema: AnnotatedMessageSchema.shape
+    },
+    async (args: any) => {
       const { messageType, includeImage } = AnnotatedMessageSchema.parse(args);
 
       const content = [];
@@ -588,11 +585,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.GET_RESOURCE_REFERENCE,
-    "Returns a resource reference that can be used by MCP clients",
-    zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Returns a resource reference that can be used by MCP clients",
+      inputSchema: GetResourceReferenceSchema.shape
+    },
+    async (args: any) => {
       const validatedArgs = GetResourceReferenceSchema.parse(args);
       const resourceId = validatedArgs.resourceId;
 
@@ -622,11 +621,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.GET_RESOURCE_LINKS,
-    "Returns multiple resource links that reference different types of resources",
-    zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Returns multiple resource links that reference different types of resources",
+      inputSchema: GetResourceLinksSchema.shape
+    },
+    async (args: any) => {
       const { count } = GetResourceLinksSchema.parse(args);
       const content = [];
 
@@ -656,11 +657,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.STRUCTURED_CONTENT,
-    "Returns structured content along with an output schema for client data validation",
-    zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
-    async (args) => {
+    {
+      description: "Returns structured content along with an output schema for client data validation",
+      inputSchema: StructuredContentSchema.input.shape
+    },
+    async (args: any) => {
       // The same response is returned for every input.
       const validatedArgs = StructuredContentSchema.input.parse(args);
 
@@ -682,11 +685,13 @@ export const createServer = () => {
     }
   );
 
-  server.tool(
+  server.registerTool(
     ToolName.ZIP_RESOURCES,
-    "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
-    zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
-    async (args) => {
+    {
+      description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
+      inputSchema: ZipResourcesInputSchema.shape
+    },
+    async (args: any) => {
       const { files } = ZipResourcesInputSchema.parse(args);
 
       const zip = new JSZip();
@@ -718,7 +723,7 @@ export const createServer = () => {
     }
   );
 
-  server.setRequestHandler(CompleteRequestSchema, async (request) => {
+  server.server.setRequestHandler(CompleteRequestSchema, async (request: any) => {
     const { ref, argument } = request.params;
 
     if (ref.type === "ref/resource") {
@@ -726,7 +731,7 @@ export const createServer = () => {
       if (!resourceId) return { completion: { values: [] } };
 
       // Filter resource IDs that start with the input value
-      const values = EXAMPLE_COMPLETIONS.resourceId.filter((id) =>
+      const values = EXAMPLE_COMPLETIONS.resourceId.filter((id: string) =>
         id.startsWith(argument.value)
       );
       return { completion: { values, hasMore: false, total: values.length } };
@@ -738,7 +743,7 @@ export const createServer = () => {
         EXAMPLE_COMPLETIONS[argument.name as keyof typeof EXAMPLE_COMPLETIONS];
       if (!completions) return { completion: { values: [] } };
 
-      const values = completions.filter((value) =>
+      const values = completions.filter((value: string) =>
         value.startsWith(argument.value)
       );
       return { completion: { values, hasMore: false, total: values.length } };
@@ -748,10 +753,10 @@ export const createServer = () => {
   });
 
   // Roots protocol handlers
-  server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+  server.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
     try {
       // Request the updated roots list from the client
-      const response = await server.listRoots();
+      const response = await server.server.listRoots();
       if (response && 'roots' in response) {
         currentRoots = response.roots;
 
@@ -772,19 +777,21 @@ export const createServer = () => {
   });
 
   // Handle post-initialization setup for roots and conditional tools
-  server.oninitialized = async () => {
-   clientCapabilities = server.getClientCapabilities();
+  server.server.oninitialized = async () => {
+   clientCapabilities = server.server.getClientCapabilities();
 
     // Register conditional tools based on client capabilities
     if (clientCapabilities?.roots) {
       clientSupportsRoots = true;
 
       // Register LIST_ROOTS tool
-      server.tool(
+      server.registerTool(
         ToolName.LIST_ROOTS,
-        "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
-        zodToJsonSchema(ListRootsSchema) as ToolInput,
-        async (args) => {
+        {
+          description: "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
+          inputSchema: ListRootsSchema.shape
+        },
+        async (args: any) => {
           ListRootsSchema.parse(args);
 
           if (!clientSupportsRoots) {
@@ -832,7 +839,7 @@ export const createServer = () => {
       );
 
       try {
-        const response = await server.listRoots();
+        const response = await server.server.listRoots();
         if (response && 'roots' in response) {
           currentRoots = response.roots;
 
@@ -865,11 +872,13 @@ export const createServer = () => {
 
     if (clientCapabilities?.elicitation) {
       // Register ELICITATION tool
-      server.tool(
+      server.registerTool(
         ToolName.ELICITATION,
-        "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
-        zodToJsonSchema(ElicitationSchema) as ToolInput,
-        async (args, extra) => {
+        {
+          description: "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
+          inputSchema: ElicitationSchema.shape
+        },
+        async (args, extra: any) => {
           ElicitationSchema.parse(args);
 
           const elicitationResult = await extra.sendRequest({
