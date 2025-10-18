@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -249,10 +249,6 @@ const OpenNodesSchema = z.object({
 const server = new McpServer({
   name: "memory-server",
   version: "0.6.3",
-}, {
-  capabilities: {
-    tools: {},
-  },
 });
 
 server.registerTool(

@@ -84,7 +84,7 @@ class SequentialThinkingServer {
 └${border}┘`;
   }
 
-  public processThought(input: unknown): { content: Array<{ type: string; text: string }>; isError?: boolean } {
+  public processThought(input: unknown): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
     try {
       const validatedInput = this.validateThoughtData(input);
 
@@ -108,7 +108,7 @@ class SequentialThinkingServer {
 
       return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({
             thoughtNumber: validatedInput.thoughtNumber,
             totalThoughts: validatedInput.totalThoughts,
@@ -121,7 +121,7 @@ class SequentialThinkingServer {
     } catch (error) {
       return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: JSON.stringify({
             error: error instanceof Error ? error.message : String(error),
             status: 'failed'
