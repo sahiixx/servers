@@ -1,4 +1,4 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import {
   ClientCapabilities,
@@ -155,20 +155,11 @@ const EXAMPLE_COMPLETIONS = {
 };
 
 export const createServer = () => {
-  const server = new Server(
+  const server = new McpServer(
     {
       name: "example-servers/everything",
       title: "Everything Example Server",
       version: "1.0.0",
-    },
-    {
-      capabilities: {
-        prompts: {},
-        resources: { subscribe: true },
-        tools: {},
-        logging: {},
-        completions: {}
-      },
       instructions
     }
   );
@@ -274,15 +265,15 @@ export const createServer = () => {
 
   // Register all resources dynamically
   ALL_RESOURCES.forEach(resource => {
-    server.registerResource({
-      uri: resource.uri,
-      name: resource.name,
-      mimeType: resource.mimeType,
-      description: `Static resource ${resource.name}`,
-      handler: async () => {
+    server.resource(
+      resource.uri,
+      resource.name,
+      resource.mimeType,
+      `Static resource ${resource.name}`,
+      async () => {
         return resource.text ? { text: resource.text } : { blob: resource.blob };
       }
-    });
+    );
   });
 
   server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
@@ -297,10 +288,11 @@ export const createServer = () => {
   });
 
   // Register prompts
-  server.registerPrompt({
-    name: PromptName.SIMPLE,
-    description: "A prompt without arguments",
-    handler: async () => {
+  server.prompt(
+    PromptName.SIMPLE,
+    "A prompt without arguments",
+    {},
+    async () => {
       return {
         messages: [
           {
@@ -313,24 +305,26 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerPrompt({
-    name: PromptName.COMPLEX,
-    description: "A prompt with arguments",
-    arguments: [
-      {
-        name: "temperature",
-        description: "Temperature setting",
-        required: true,
+  server.prompt(
+    PromptName.COMPLEX,
+    "A prompt with arguments",
+    {
+      type: "object",
+      properties: {
+        temperature: {
+          type: "string",
+          description: "Temperature setting"
+        },
+        style: {
+          type: "string",
+          description: "Output style"
+        }
       },
-      {
-        name: "style",
-        description: "Output style",
-        required: false,
-      },
-    ],
-    handler: async (args) => {
+      required: ["temperature"]
+    },
+    async (args) => {
       return {
         messages: [
           {
@@ -358,19 +352,22 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerPrompt({
-    name: PromptName.RESOURCE,
-    description: "A prompt that includes an embedded resource reference",
-    arguments: [
-      {
-        name: "resourceId",
-        description: "Resource ID to include (1-100)",
-        required: true,
+  server.prompt(
+    PromptName.RESOURCE,
+    "A prompt that includes an embedded resource reference",
+    {
+      type: "object",
+      properties: {
+        resourceId: {
+          type: "string",
+          description: "Resource ID to include (1-100)"
+        }
       },
-    ],
-    handler: async (args) => {
+      required: ["resourceId"]
+    },
+    async (args) => {
       const resourceId = parseInt(args?.resourceId as string, 10);
       if (isNaN(resourceId) || resourceId < 1 || resourceId > 100) {
         throw new Error(
@@ -400,26 +397,26 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
   // Register tools
-  server.registerTool({
-    name: ToolName.ECHO,
-    description: "Echoes back the input",
-    inputSchema: zodToJsonSchema(EchoSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.ECHO,
+    "Echoes back the input",
+    zodToJsonSchema(EchoSchema) as ToolInput,
+    async (args) => {
       const validatedArgs = EchoSchema.parse(args);
       return {
         content: [{ type: "text", text: `Echo: ${validatedArgs.message}` }],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.ADD,
-    description: "Adds two numbers",
-    inputSchema: zodToJsonSchema(AddSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.ADD,
+    "Adds two numbers",
+    zodToJsonSchema(AddSchema) as ToolInput,
+    async (args) => {
       const validatedArgs = AddSchema.parse(args);
       const sum = validatedArgs.a + validatedArgs.b;
       return {
@@ -431,13 +428,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.LONG_RUNNING_OPERATION,
-    description: "Demonstrates a long running operation with progress updates",
-    inputSchema: zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
-    handler: async (args, extra) => {
+  server.tool(
+    ToolName.LONG_RUNNING_OPERATION,
+    "Demonstrates a long running operation with progress updates",
+    zodToJsonSchema(LongRunningOperationSchema) as ToolInput,
+    async (args, extra) => {
       const validatedArgs = LongRunningOperationSchema.parse(args);
       const { duration, steps } = validatedArgs;
       const stepDuration = duration / steps;
@@ -469,13 +466,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.PRINT_ENV,
-    description: "Prints all environment variables, helpful for debugging MCP server configuration",
-    inputSchema: zodToJsonSchema(PrintEnvSchema) as ToolInput,
-    handler: async () => {
+  server.tool(
+    ToolName.PRINT_ENV,
+    "Prints all environment variables, helpful for debugging MCP server configuration",
+    zodToJsonSchema(PrintEnvSchema) as ToolInput,
+    async () => {
       return {
         content: [
           {
@@ -485,13 +482,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.SAMPLE_LLM,
-    description: "Samples from an LLM using MCP's sampling feature",
-    inputSchema: zodToJsonSchema(SampleLLMSchema) as ToolInput,
-    handler: async (args, extra) => {
+  server.tool(
+    ToolName.SAMPLE_LLM,
+    "Samples from an LLM using MCP's sampling feature",
+    zodToJsonSchema(SampleLLMSchema) as ToolInput,
+    async (args, extra) => {
       const validatedArgs = SampleLLMSchema.parse(args);
       const { prompt, maxTokens } = validatedArgs;
 
@@ -507,13 +504,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.GET_TINY_IMAGE,
-    description: "Returns the MCP_TINY_IMAGE",
-    inputSchema: zodToJsonSchema(GetTinyImageSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.GET_TINY_IMAGE,
+    "Returns the MCP_TINY_IMAGE",
+    zodToJsonSchema(GetTinyImageSchema) as ToolInput,
+    async (args) => {
       GetTinyImageSchema.parse(args);
       return {
         content: [
@@ -533,13 +530,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.ANNOTATED_MESSAGE,
-    description: "Demonstrates how annotations can be used to provide metadata about content",
-    inputSchema: zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.ANNOTATED_MESSAGE,
+    "Demonstrates how annotations can be used to provide metadata about content",
+    zodToJsonSchema(AnnotatedMessageSchema) as ToolInput,
+    async (args) => {
       const { messageType, includeImage } = AnnotatedMessageSchema.parse(args);
 
       const content = [];
@@ -589,13 +586,13 @@ export const createServer = () => {
 
       return { content };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.GET_RESOURCE_REFERENCE,
-    description: "Returns a resource reference that can be used by MCP clients",
-    inputSchema: zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.GET_RESOURCE_REFERENCE,
+    "Returns a resource reference that can be used by MCP clients",
+    zodToJsonSchema(GetResourceReferenceSchema) as ToolInput,
+    async (args) => {
       const validatedArgs = GetResourceReferenceSchema.parse(args);
       const resourceId = validatedArgs.resourceId;
 
@@ -623,13 +620,13 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.GET_RESOURCE_LINKS,
-    description: "Returns multiple resource links that reference different types of resources",
-    inputSchema: zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.GET_RESOURCE_LINKS,
+    "Returns multiple resource links that reference different types of resources",
+    zodToJsonSchema(GetResourceLinksSchema) as ToolInput,
+    async (args) => {
       const { count } = GetResourceLinksSchema.parse(args);
       const content = [];
 
@@ -657,14 +654,13 @@ export const createServer = () => {
 
       return { content };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.STRUCTURED_CONTENT,
-    description: "Returns structured content along with an output schema for client data validation",
-    inputSchema: zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
-    outputSchema: zodToJsonSchema(StructuredContentSchema.output) as ToolOutput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.STRUCTURED_CONTENT,
+    "Returns structured content along with an output schema for client data validation",
+    zodToJsonSchema(StructuredContentSchema.input) as ToolInput,
+    async (args) => {
       // The same response is returned for every input.
       const validatedArgs = StructuredContentSchema.input.parse(args);
 
@@ -684,13 +680,13 @@ export const createServer = () => {
         structuredContent: weather
       };
     }
-  });
+  );
 
-  server.registerTool({
-    name: ToolName.ZIP_RESOURCES,
-    description: "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
-    inputSchema: zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
-    handler: async (args) => {
+  server.tool(
+    ToolName.ZIP_RESOURCES,
+    "Compresses the provided resource files (mapping of name to URI, which can be a data URI) to a zip file, which it returns as a data URI resource link.",
+    zodToJsonSchema(ZipResourcesInputSchema) as ToolInput,
+    async (args) => {
       const { files } = ZipResourcesInputSchema.parse(args);
 
       const zip = new JSZip();
@@ -720,7 +716,7 @@ export const createServer = () => {
         ],
       };
     }
-  });
+  );
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
     const { ref, argument } = request.params;
@@ -784,11 +780,11 @@ export const createServer = () => {
       clientSupportsRoots = true;
 
       // Register LIST_ROOTS tool
-      server.registerTool({
-        name: ToolName.LIST_ROOTS,
-        description: "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
-        inputSchema: zodToJsonSchema(ListRootsSchema) as ToolInput,
-        handler: async (args) => {
+      server.tool(
+        ToolName.LIST_ROOTS,
+        "Lists the current MCP roots provided by the client. Demonstrates the roots protocol capability even though this server doesn't access files.",
+        zodToJsonSchema(ListRootsSchema) as ToolInput,
+        async (args) => {
           ListRootsSchema.parse(args);
 
           if (!clientSupportsRoots) {
@@ -833,7 +829,7 @@ export const createServer = () => {
             ]
           };
         }
-      });
+      );
 
       try {
         const response = await server.listRoots();
@@ -869,11 +865,11 @@ export const createServer = () => {
 
     if (clientCapabilities?.elicitation) {
       // Register ELICITATION tool
-      server.registerTool({
-        name: ToolName.ELICITATION,
-        description: "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
-        inputSchema: zodToJsonSchema(ElicitationSchema) as ToolInput,
-        handler: async (args, extra) => {
+      server.tool(
+        ToolName.ELICITATION,
+        "Elicitation test tool that demonstrates how to request user input with various field types (string, boolean, email, uri, date, integer, number, enum)",
+        zodToJsonSchema(ElicitationSchema) as ToolInput,
+        async (args, extra) => {
           ElicitationSchema.parse(args);
 
           const elicitationResult = await extra.sendRequest({
@@ -992,7 +988,7 @@ export const createServer = () => {
 
           return { content };
         }
-      });
+      );
     }
   };
 

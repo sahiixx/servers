@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 // Fixed chalk import for ESM
 import chalk from 'chalk';
 
@@ -135,9 +133,19 @@ class SequentialThinkingServer {
   }
 }
 
-const SEQUENTIAL_THINKING_TOOL: Tool = {
-  name: "sequentialthinking",
-  description: `A detailed tool for dynamic and reflective problem-solving through thoughts.
+const SequentialThinkingToolSchema = z.object({
+  thought: z.string().describe("Your current thinking step"),
+  nextThoughtNeeded: z.boolean().describe("Whether another thought step is needed"),
+  thoughtNumber: z.number().int().min(1).describe("Current thought number (numeric value, e.g., 1, 2, 3)"),
+  totalThoughts: z.number().int().min(1).describe("Estimated total thoughts needed (numeric value, e.g., 5, 10)"),
+  isRevision: z.boolean().optional().describe("Whether this revises previous thinking"),
+  revisesThought: z.number().int().min(1).optional().describe("Which thought is being reconsidered"),
+  branchFromThought: z.number().int().min(1).optional().describe("Branching point thought number"),
+  branchId: z.string().optional().describe("Branch identifier"),
+  needsMoreThoughts: z.boolean().optional().describe("If more thoughts are needed")
+});
+
+const TOOL_DESCRIPTION = `A detailed tool for dynamic and reflective problem-solving through thoughts.
 This tool helps analyze problems through a flexible thinking process that can adapt and evolve.
 Each thought can build on, question, or revise previous insights as understanding deepens.
 
@@ -190,77 +198,25 @@ You should:
 8. Verify the hypothesis based on the Chain of Thought steps
 9. Repeat the process until satisfied with the solution
 10. Provide a single, ideally correct answer as the final output
-11. Only set next_thought_needed to false when truly done and a satisfactory answer is reached`,
-  inputSchema: {
-    type: "object",
-    properties: {
-      thought: {
-        type: "string",
-        description: "Your current thinking step"
-      },
-      nextThoughtNeeded: {
-        type: "boolean",
-        description: "Whether another thought step is needed"
-      },
-      thoughtNumber: {
-        type: "integer",
-        description: "Current thought number (numeric value, e.g., 1, 2, 3)",
-        minimum: 1
-      },
-      totalThoughts: {
-        type: "integer",
-        description: "Estimated total thoughts needed (numeric value, e.g., 5, 10)",
-        minimum: 1
-      },
-      isRevision: {
-        type: "boolean",
-        description: "Whether this revises previous thinking"
-      },
-      revisesThought: {
-        type: "integer",
-        description: "Which thought is being reconsidered",
-        minimum: 1
-      },
-      branchFromThought: {
-        type: "integer",
-        description: "Branching point thought number",
-        minimum: 1
-      },
-      branchId: {
-        type: "string",
-        description: "Branch identifier"
-      },
-      needsMoreThoughts: {
-        type: "boolean",
-        description: "If more thoughts are needed"
-      }
-    },
-    required: ["thought", "nextThoughtNeeded", "thoughtNumber", "totalThoughts"]
-  }
-};
+11. Only set next_thought_needed to false when truly done and a satisfactory answer is reached`;
 
-const server = new Server(
-  {
-    name: "sequential-thinking-server",
-    version: "0.2.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+const server = new McpServer({
+  name: "sequential-thinking-server",
+  version: "0.2.0",
+});
 
 const thinkingServer = new SequentialThinkingServer();
 
-server.registerTool({
-  name: SEQUENTIAL_THINKING_TOOL.name,
-  description: SEQUENTIAL_THINKING_TOOL.description,
-  inputSchema: SEQUENTIAL_THINKING_TOOL.inputSchema,
-  handler: async (args) => {
+server.registerTool(
+  "sequentialthinking",
+  {
+    description: TOOL_DESCRIPTION,
+    inputSchema: SequentialThinkingToolSchema.shape,
+  },
+  async (args) => {
     return thinkingServer.processThought(args);
   }
-});
+);
 
 async function runServer() {
   const transport = new StdioServerTransport();
