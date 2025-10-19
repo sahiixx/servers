@@ -699,3 +699,9 @@ describe('Lib Functions', () => {
     });
   });
 });
+/* 
+ Test scope note (Oct 19, 2025):
+ No new tests are added in branch 'origin/copilot/fix-build-and-deploy-issues' because git diff main..HEAD is empty.
+ HEAD commit: 0197890; main commit: 5aedaab; tree hash: 38e6287965ac7937633b78cf5224d60e158eec74 (identical).
+ Per request, we only generate tests for files within the diff. See docs/TESTING_SCOPE.md for details.
+*/
