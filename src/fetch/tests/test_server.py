@@ -474,7 +474,7 @@ class TestFetchUrl:
             
             # Verify follow_redirects was set to True
             call_kwargs = mock_instance.get.call_args.kwargs
-            assert call_kwargs.get('follow_redirects')
+            assert call_kwargs.get('follow_redirects') == True
 
     async def test_fetch_with_custom_timeout(self):
         """Test fetch uses correct timeout."""
@@ -532,7 +532,7 @@ class TestFetchModel:
         assert str(fetch.url) == "https://example.com/"
         assert fetch.max_length == 5000
         assert fetch.start_index == 0
-        assert not fetch.raw
+        assert fetch.raw == False
 
     def test_fetch_model_defaults(self):
         """Test Fetch model default values."""
@@ -540,7 +540,7 @@ class TestFetchModel:
         
         assert fetch.max_length == 5000
         assert fetch.start_index == 0
-        assert not fetch.raw
+        assert fetch.raw == False
 
     def test_fetch_model_custom_values(self):
         """Test Fetch model with custom values."""
@@ -553,7 +553,7 @@ class TestFetchModel:
         
         assert fetch.max_length == 10000
         assert fetch.start_index == 100
-        assert fetch.raw
+        assert fetch.raw == True
 
     def test_fetch_model_invalid_max_length_zero(self):
         """Test Fetch model rejects zero max_length."""
