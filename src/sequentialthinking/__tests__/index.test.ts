@@ -1,133 +1,54 @@
-import { jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 
 describe('Sequential Thinking Server', () => {
-  let originalEnv: NodeJS.ProcessEnv;
-
-  beforeEach(() => {
-    originalEnv = { ...process.env };
-    jest.clearAllMocks();
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
-  describe('ThoughtData Interface', () => {
-    it('should validate required thought field', () => {
-      const validThought = {
-        thought: 'This is a valid thought',
+  describe('ThoughtData Structure', () => {
+    it('defines required fields', () => {
+      const thoughtData = {
+        thought: 'This is my first thought',
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(validThought.thought).toBe('This is a valid thought');
-      expect(typeof validThought.thought).toBe('string');
+      expect(thoughtData).toHaveProperty('thought');
+      expect(thoughtData).toHaveProperty('thoughtNumber');
+      expect(thoughtData).toHaveProperty('totalThoughts');
+      expect(thoughtData).toHaveProperty('nextThoughtNeeded');
     });
 
-    it('should validate required thoughtNumber field', () => {
-      const validThought = {
-        thought: 'Test',
-        thoughtNumber: 3,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(validThought.thoughtNumber).toBe(3);
-      expect(typeof validThought.thoughtNumber).toBe('number');
-    });
-
-    it('should validate required totalThoughts field', () => {
-      const validThought = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-      };
-
-      expect(validThought.totalThoughts).toBe(10);
-      expect(typeof validThought.totalThoughts).toBe('number');
-    });
-
-    it('should validate required nextThoughtNeeded field', () => {
-      const validThought = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: false,
-      };
-
-      expect(validThought.nextThoughtNeeded).toBe(false);
-      expect(typeof validThought.nextThoughtNeeded).toBe('boolean');
-    });
-
-    it('should allow optional isRevision field', () => {
-      const thoughtWithRevision = {
-        thought: 'Revised thought',
-        thoughtNumber: 2,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        isRevision: true,
-      };
-
-      expect(thoughtWithRevision.isRevision).toBe(true);
-    });
-
-    it('should allow optional revisesThought field', () => {
-      const thoughtWithRevision = {
-        thought: 'Test',
+    it('includes optional revision fields', () => {
+      const thoughtData = {
+        thought: 'Revising previous thought',
         thoughtNumber: 3,
         totalThoughts: 5,
         nextThoughtNeeded: true,
         isRevision: true,
-        revisesThought: 1,
+        revisesThought: 2,
       };
 
-      expect(thoughtWithRevision.revisesThought).toBe(1);
+      expect(thoughtData.isRevision).toBe(true);
+      expect(thoughtData.revisesThought).toBe(2);
     });
 
-    it('should allow optional branchFromThought field', () => {
-      const branchedThought = {
-        thought: 'Branched thought',
+    it('includes optional branching fields', () => {
+      const thoughtData = {
+        thought: 'Branching into alternative approach',
         thoughtNumber: 4,
-        totalThoughts: 8,
+        totalThoughts: 6,
         nextThoughtNeeded: true,
-        branchFromThought: 2,
+        branchFromThought: 3,
         branchId: 'branch-1',
       };
 
-      expect(branchedThought.branchFromThought).toBe(2);
-    });
-
-    it('should allow optional branchId field', () => {
-      const branchedThought = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branchId: 'experimental-path',
-      };
-
-      expect(branchedThought.branchId).toBe('experimental-path');
-    });
-
-    it('should allow optional needsMoreThoughts field', () => {
-      const thought = {
-        thought: 'Test',
-        thoughtNumber: 5,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        needsMoreThoughts: true,
-      };
-
-      expect(thought.needsMoreThoughts).toBe(true);
+      expect(thoughtData.branchFromThought).toBe(3);
+      expect(thoughtData.branchId).toBe('branch-1');
     });
   });
 
   describe('Thought Validation', () => {
-    it('should reject invalid thought type', () => {
+    it('validates thought is a string', () => {
       const invalidData = {
-        thought: 123, // Should be string
+        thought: 123,
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
@@ -136,73 +57,306 @@ describe('Sequential Thinking Server', () => {
       expect(typeof invalidData.thought).not.toBe('string');
     });
 
-    it('should reject missing thought field', () => {
-      const invalidData = {
+    it('validates thoughtNumber is a number', () => {
+      const validData = {
+        thought: 'Valid thought',
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(invalidData).not.toHaveProperty('thought');
+      expect(typeof validData.thoughtNumber).toBe('number');
+      expect(validData.thoughtNumber).toBeGreaterThan(0);
     });
 
-    it('should reject invalid thoughtNumber type', () => {
-      const invalidData = {
-        thought: 'Test',
-        thoughtNumber: '1', // Should be number
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(typeof invalidData.thoughtNumber).not.toBe('number');
-    });
-
-    it('should reject missing thoughtNumber field', () => {
-      const invalidData = {
-        thought: 'Test',
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(invalidData).not.toHaveProperty('thoughtNumber');
-    });
-
-    it('should reject invalid totalThoughts type', () => {
-      const invalidData = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: '5', // Should be number
-        nextThoughtNeeded: true,
-      };
-
-      expect(typeof invalidData.totalThoughts).not.toBe('number');
-    });
-
-    it('should reject invalid nextThoughtNeeded type', () => {
-      const invalidData = {
-        thought: 'Test',
+    it('validates totalThoughts is a number', () => {
+      const validData = {
+        thought: 'Valid thought',
         thoughtNumber: 1,
         totalThoughts: 5,
-        nextThoughtNeeded: 'yes', // Should be boolean
+        nextThoughtNeeded: true,
       };
 
-      expect(typeof invalidData.nextThoughtNeeded).not.toBe('boolean');
+      expect(typeof validData.totalThoughts).toBe('number');
+      expect(validData.totalThoughts).toBeGreaterThan(0);
     });
 
-    it('should handle empty thought string', () => {
-      const emptyThought = {
+    it('validates nextThoughtNeeded is a boolean', () => {
+      const validData = {
+        thought: 'Valid thought',
+        thoughtNumber: 1,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+      };
+
+      expect(typeof validData.nextThoughtNeeded).toBe('boolean');
+    });
+  });
+
+  describe('Thought History Management', () => {
+    it('tracks thought history in order', () => {
+      const history: any[] = [];
+      
+      history.push({
+        thought: 'First thought',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      });
+      
+      history.push({
+        thought: 'Second thought',
+        thoughtNumber: 2,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      });
+
+      expect(history.length).toBe(2);
+      expect(history[0].thoughtNumber).toBe(1);
+      expect(history[1].thoughtNumber).toBe(2);
+    });
+
+    it('adjusts totalThoughts when thoughtNumber exceeds it', () => {
+      let thoughtData = {
+        thought: 'Need more thoughts',
+        thoughtNumber: 6,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+      };
+
+      if (thoughtData.thoughtNumber > thoughtData.totalThoughts) {
+        thoughtData.totalThoughts = thoughtData.thoughtNumber;
+      }
+
+      expect(thoughtData.totalThoughts).toBe(6);
+    });
+
+    it('handles revision thoughts', () => {
+      const history: any[] = [];
+      
+      history.push({
+        thought: 'Original thought',
+        thoughtNumber: 2,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+      });
+      
+      history.push({
+        thought: 'Revised thought',
+        thoughtNumber: 3,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+        isRevision: true,
+        revisesThought: 2,
+      });
+
+      const revision = history[1];
+      expect(revision.isRevision).toBe(true);
+      expect(revision.revisesThought).toBe(2);
+    });
+  });
+
+  describe('Branch Management', () => {
+    it('creates new branches', () => {
+      const branches: Record<string, any[]> = {};
+      const branchId = 'branch-1';
+      
+      if (!branches[branchId]) {
+        branches[branchId] = [];
+      }
+
+      branches[branchId].push({
+        thought: 'Branched thought',
+        thoughtNumber: 4,
+        totalThoughts: 6,
+        nextThoughtNeeded: true,
+        branchFromThought: 3,
+        branchId: 'branch-1',
+      });
+
+      expect(branches['branch-1']).toBeDefined();
+      expect(branches['branch-1'].length).toBe(1);
+    });
+
+    it('tracks multiple branches', () => {
+      const branches: Record<string, any[]> = {
+        'branch-1': [{
+          thought: 'Branch 1 thought',
+          thoughtNumber: 4,
+          totalThoughts: 6,
+          nextThoughtNeeded: true,
+          branchFromThought: 3,
+          branchId: 'branch-1',
+        }],
+        'branch-2': [{
+          thought: 'Branch 2 thought',
+          thoughtNumber: 4,
+          totalThoughts: 6,
+          nextThoughtNeeded: true,
+          branchFromThought: 3,
+          branchId: 'branch-2',
+        }],
+      };
+
+      expect(Object.keys(branches).length).toBe(2);
+      expect(branches['branch-1']).toBeDefined();
+      expect(branches['branch-2']).toBeDefined();
+    });
+
+    it('accumulates thoughts within a branch', () => {
+      const branches: Record<string, any[]> = {};
+      const branchId = 'branch-1';
+      
+      if (!branches[branchId]) {
+        branches[branchId] = [];
+      }
+
+      branches[branchId].push({
+        thought: 'First branch thought',
+        thoughtNumber: 4,
+        totalThoughts: 6,
+        nextThoughtNeeded: true,
+        branchFromThought: 3,
+        branchId: 'branch-1',
+      });
+
+      branches[branchId].push({
+        thought: 'Second branch thought',
+        thoughtNumber: 5,
+        totalThoughts: 6,
+        nextThoughtNeeded: false,
+        branchId: 'branch-1',
+      });
+
+      expect(branches['branch-1'].length).toBe(2);
+    });
+  });
+
+  describe('Thought Formatting', () => {
+    it('formats regular thoughts', () => {
+      const thought = {
+        thought: 'Analyzing the problem',
+        thoughtNumber: 1,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+      };
+
+      const formatted = `Thought ${thought.thoughtNumber}/${thought.totalThoughts}`;
+      expect(formatted).toContain('1/5');
+    });
+
+    it('indicates revision in formatting', () => {
+      const thought = {
+        thought: 'Correcting previous analysis',
+        thoughtNumber: 3,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+        isRevision: true,
+        revisesThought: 2,
+      };
+
+      const formatted = thought.isRevision 
+        ? `Revision (revising thought ${thought.revisesThought})`
+        : 'Regular thought';
+      
+      expect(formatted).toContain('Revision');
+      expect(formatted).toContain('2');
+    });
+
+    it('indicates branching in formatting', () => {
+      const thought = {
+        thought: 'Exploring alternative',
+        thoughtNumber: 4,
+        totalThoughts: 6,
+        nextThoughtNeeded: true,
+        branchFromThought: 3,
+        branchId: 'branch-1',
+      };
+
+      const formatted = thought.branchFromThought 
+        ? `Branch (from thought ${thought.branchFromThought}, ID: ${thought.branchId})`
+        : 'Regular thought';
+      
+      expect(formatted).toContain('Branch');
+      expect(formatted).toContain('3');
+      expect(formatted).toContain('branch-1');
+    });
+  });
+
+  describe('Thought Processing Results', () => {
+    it('returns success status with metadata', () => {
+      const result = {
+        thoughtNumber: 1,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+        branches: [],
+        thoughtHistoryLength: 1,
+      };
+
+      expect(result.thoughtNumber).toBe(1);
+      expect(result.totalThoughts).toBe(5);
+      expect(result.nextThoughtNeeded).toBe(true);
+      expect(result.branches).toBeDefined();
+      expect(result.thoughtHistoryLength).toBe(1);
+    });
+
+    it('returns error status on failure', () => {
+      const result = {
+        error: 'Invalid thought: must be a string',
+        status: 'failed',
+      };
+
+      expect(result.error).toBeDefined();
+      expect(result.status).toBe('failed');
+    });
+
+    it('includes branch information in result', () => {
+      const branches = ['branch-1', 'branch-2'];
+      const result = {
+        thoughtNumber: 5,
+        totalThoughts: 8,
+        nextThoughtNeeded: true,
+        branches: branches,
+        thoughtHistoryLength: 7,
+      };
+
+      expect(result.branches.length).toBe(2);
+      expect(result.branches).toContain('branch-1');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('handles thought number exceeding total thoughts', () => {
+      const thought = {
+        thought: 'Unexpected continuation',
+        thoughtNumber: 8,
+        totalThoughts: 5,
+        nextThoughtNeeded: true,
+      };
+
+      // Should auto-adjust
+      const adjusted = {
+        ...thought,
+        totalThoughts: Math.max(thought.totalThoughts, thought.thoughtNumber),
+      };
+
+      expect(adjusted.totalThoughts).toBe(8);
+    });
+
+    it('handles empty thought text', () => {
+      const thought = {
         thought: '',
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(emptyThought.thought).toBe('');
-      expect(emptyThought.thought.length).toBe(0);
+      expect(thought.thought).toBe('');
+      expect(thought.thought.length).toBe(0);
     });
 
-    it('should handle very long thought strings', () => {
-      const longThought = 'a'.repeat(10000);
+    it('handles very long thought text', () => {
+      const longThought = 'A'.repeat(10000);
       const thought = {
         thought: longThought,
         thoughtNumber: 1,
@@ -212,203 +366,35 @@ describe('Sequential Thinking Server', () => {
 
       expect(thought.thought.length).toBe(10000);
     });
-  });
 
-  describe('Thought Numbering', () => {
-    it('should handle thoughtNumber exceeding totalThoughts', () => {
+    it('handles thought with special characters', () => {
       const thought = {
-        thought: 'Unexpected continuation',
-        thoughtNumber: 8,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBeGreaterThan(thought.totalThoughts);
-    });
-
-    it('should handle thought sequence starting from 1', () => {
-      const thought = {
-        thought: 'First thought',
-        thoughtNumber: 1,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBe(1);
-    });
-
-    it('should handle mid-sequence thoughts', () => {
-      const thought = {
-        thought: 'Middle thought',
-        thoughtNumber: 5,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBeGreaterThan(1);
-      expect(thought.thoughtNumber).toBeLessThan(thought.totalThoughts);
-    });
-
-    it('should handle final thought in sequence', () => {
-      const thought = {
-        thought: 'Final thought',
-        thoughtNumber: 10,
-        totalThoughts: 10,
-        nextThoughtNeeded: false,
-      };
-
-      expect(thought.thoughtNumber).toBe(thought.totalThoughts);
-      expect(thought.nextThoughtNeeded).toBe(false);
-    });
-
-    it('should allow totalThoughts adjustment', () => {
-      const initialThought = {
-        thought: 'Initial estimate',
+        thought: 'Thought with\nnewlines\tand\ttabs and "quotes" and \'apostrophes\'',
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      const adjustedThought = {
-        thought: 'Realized need more',
-        thoughtNumber: 6,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-      };
-
-      expect(adjustedThought.totalThoughts).toBeGreaterThan(initialThought.totalThoughts);
-    });
-  });
-
-  describe('Revision Thoughts', () => {
-    it('should mark revisions correctly', () => {
-      const revision = {
-        thought: 'Actually, let me reconsider...',
-        thoughtNumber: 4,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-        isRevision: true,
-        revisesThought: 2,
-      };
-
-      expect(revision.isRevision).toBe(true);
-      expect(revision.revisesThought).toBeDefined();
+      expect(thought.thought).toContain('\n');
+      expect(thought.thought).toContain('\t');
+      expect(thought.thought).toContain('"');
     });
 
-    it('should track which thought is being revised', () => {
-      const revision = {
-        thought: 'Correction to previous analysis',
-        thoughtNumber: 5,
-        totalThoughts: 8,
-        nextThoughtNeeded: true,
-        isRevision: true,
-        revisesThought: 3,
-      };
-
-      expect(revision.revisesThought).toBe(3);
-    });
-
-    it('should allow revision without revisesThought number', () => {
-      const revision = {
-        thought: 'General revision',
-        thoughtNumber: 4,
-        totalThoughts: 8,
-        nextThoughtNeeded: true,
-        isRevision: true,
-      };
-
-      expect(revision.isRevision).toBe(true);
-      expect(revision.revisesThought).toBeUndefined();
-    });
-
-    it('should handle non-revision thoughts', () => {
-      const regularThought = {
-        thought: 'Regular thought',
-        thoughtNumber: 2,
+    it('handles zero or negative thought numbers gracefully', () => {
+      const invalidThought = {
+        thought: 'Invalid',
+        thoughtNumber: 0,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(regularThought.isRevision).toBeUndefined();
-    });
-  });
-
-  describe('Branching Thoughts', () => {
-    it('should create branches with proper metadata', () => {
-      const branch = {
-        thought: 'Alternative approach',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branchFromThought: 3,
-        branchId: 'alt-solution',
-      };
-
-      expect(branch.branchFromThought).toBe(3);
-      expect(branch.branchId).toBe('alt-solution');
+      // Should be rejected in validation
+      expect(invalidThought.thoughtNumber).toBeLessThanOrEqual(0);
     });
 
-    it('should track multiple branches with unique IDs', () => {
-      const branch1 = {
-        thought: 'Path A',
-        thoughtNumber: 1,
-        totalThoughts: 4,
-        nextThoughtNeeded: true,
-        branchFromThought: 2,
-        branchId: 'path-a',
-      };
-
-      const branch2 = {
-        thought: 'Path B',
-        thoughtNumber: 1,
-        totalThoughts: 3,
-        nextThoughtNeeded: true,
-        branchFromThought: 2,
-        branchId: 'path-b',
-      };
-
-      expect(branch1.branchId).not.toBe(branch2.branchId);
-    });
-
-    it('should allow branch without branchFromThought', () => {
-      const branch = {
-        thought: 'New branch',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branchId: 'experiment',
-      };
-
-      expect(branch.branchId).toBeDefined();
-      expect(branch.branchFromThought).toBeUndefined();
-    });
-
-    it('should handle complex branch hierarchies', () => {
-      const mainThought = {
-        thought: 'Main analysis',
-        thoughtNumber: 5,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-      };
-
-      const subBranch = {
-        thought: 'Sub-branch thought',
-        thoughtNumber: 2,
-        totalThoughts: 4,
-        nextThoughtNeeded: true,
-        branchFromThought: 1,
-        branchId: 'sub-exploration',
-      };
-
-      expect(mainThought.branchId).toBeUndefined();
-      expect(subBranch.branchId).toBeDefined();
-    });
-  });
-
-  describe('Dynamic Thought Planning', () => {
-    it('should handle needsMoreThoughts flag', () => {
+    it('handles needsMoreThoughts flag', () => {
       const thought = {
-        thought: 'Realized complexity is greater',
+        thought: 'Realizing more analysis needed',
         thoughtNumber: 5,
         totalThoughts: 5,
         nextThoughtNeeded: true,
@@ -418,351 +404,96 @@ describe('Sequential Thinking Server', () => {
       expect(thought.needsMoreThoughts).toBe(true);
       expect(thought.nextThoughtNeeded).toBe(true);
     });
-
-    it('should allow continuing after reaching totalThoughts', () => {
-      const endThought = {
-        thought: 'Thought I was done',
-        thoughtNumber: 5,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        needsMoreThoughts: true,
-      };
-
-      const continuedThought = {
-        thought: 'But found more to explore',
-        thoughtNumber: 6,
-        totalThoughts: 8,
-        nextThoughtNeeded: true,
-      };
-
-      expect(continuedThought.thoughtNumber).toBeGreaterThan(endThought.totalThoughts);
-    });
-
-    it('should handle reducing totalThoughts', () => {
-      const initialThought = {
-        thought: 'Expected complex problem',
-        thoughtNumber: 1,
-        totalThoughts: 20,
-        nextThoughtNeeded: true,
-      };
-
-      const simplifiedThought = {
-        thought: 'Actually simpler than expected',
-        thoughtNumber: 3,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(simplifiedThought.totalThoughts).toBeLessThan(initialThought.totalThoughts);
-    });
   });
 
-  describe('Thought Formatting', () => {
-    it('should format regular thoughts with proper structure', () => {
-      const thought = {
-        thought: 'Analysis of the problem',
-        thoughtNumber: 3,
-        totalThoughts: 8,
-        nextThoughtNeeded: true,
-      };
-
-      const formatted = `Thought ${thought.thoughtNumber}/${thought.totalThoughts}`;
-      expect(formatted).toContain('3/8');
-    });
-
-    it('should format revision thoughts with context', () => {
-      const revision = {
-        thought: 'Correcting previous assumption',
-        thoughtNumber: 5,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-        isRevision: true,
-        revisesThought: 3,
-      };
-
-      const formatted = `Revision (revising thought ${revision.revisesThought})`;
-      expect(formatted).toContain('revising thought 3');
-    });
-
-    it('should format branch thoughts with branch info', () => {
-      const branch = {
-        thought: 'Exploring alternative',
-        thoughtNumber: 2,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branchFromThought: 4,
-        branchId: 'alternative-path',
-      };
-
-      const formatted = `Branch (from thought ${branch.branchFromThought}, ID: ${branch.branchId})`;
-      expect(formatted).toContain('from thought 4');
-      expect(formatted).toContain('alternative-path');
-    });
-  });
-
-  describe('Environment Configuration', () => {
-    it('should respect DISABLE_THOUGHT_LOGGING=true', () => {
-      process.env.DISABLE_THOUGHT_LOGGING = 'true';
-      expect(process.env.DISABLE_THOUGHT_LOGGING.toLowerCase()).toBe('true');
-    });
-
-    it('should respect DISABLE_THOUGHT_LOGGING=TRUE (uppercase)', () => {
-      process.env.DISABLE_THOUGHT_LOGGING = 'TRUE';
-      expect(process.env.DISABLE_THOUGHT_LOGGING.toLowerCase()).toBe('true');
-    });
-
-    it('should enable logging when DISABLE_THOUGHT_LOGGING=false', () => {
-      process.env.DISABLE_THOUGHT_LOGGING = 'false';
-      expect(process.env.DISABLE_THOUGHT_LOGGING.toLowerCase()).not.toBe('true');
-    });
-
-    it('should enable logging when DISABLE_THOUGHT_LOGGING is not set', () => {
-      delete process.env.DISABLE_THOUGHT_LOGGING;
-      const value = process.env.DISABLE_THOUGHT_LOGGING || '';
-      expect(value.toLowerCase()).not.toBe('true');
-    });
-
-    it('should handle various truthy/falsy string values', () => {
-      const truthyValues = ['true', 'TRUE', 'True'];
-      const falsyValues = ['false', 'FALSE', 'False', '0', ''];
-
-      truthyValues.forEach(val => {
-        expect(val.toLowerCase()).toBe('true');
-      });
-
-      falsyValues.forEach(val => {
-        expect(val.toLowerCase()).not.toBe('true');
-      });
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should handle null thought gracefully', () => {
-      const invalidData = {
-        thought: null,
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(invalidData.thought).toBeNull();
-    });
-
-    it('should handle undefined thought gracefully', () => {
-      const invalidData = {
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(invalidData.thought).toBeUndefined();
-    });
-
-    it('should handle zero thoughtNumber', () => {
-      const thought = {
-        thought: 'Test',
-        thoughtNumber: 0,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBe(0);
-    });
-
-    it('should handle negative thoughtNumber', () => {
-      const thought = {
-        thought: 'Test',
-        thoughtNumber: -1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBeLessThan(0);
-    });
-
-    it('should handle zero totalThoughts', () => {
-      const thought = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: 0,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.totalThoughts).toBe(0);
-    });
-
-    it('should handle very large thoughtNumber values', () => {
-      const thought = {
-        thought: 'Test',
-        thoughtNumber: Number.MAX_SAFE_INTEGER,
-        totalThoughts: Number.MAX_SAFE_INTEGER,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thoughtNumber).toBe(Number.MAX_SAFE_INTEGER);
-    });
-  });
-
-  describe('Response Format', () => {
-    it('should return proper success response structure', () => {
-      const response = {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            thoughtNumber: 3,
-            totalThoughts: 10,
-            nextThoughtNeeded: true,
-            branches: [],
-            thoughtHistoryLength: 3,
-          }, null, 2),
-        }],
-      };
-
-      expect(response.content).toHaveLength(1);
-      expect(response.content[0].type).toBe('text');
-    });
-
-    it('should return proper error response structure', () => {
-      const response = {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            error: 'Invalid thought data',
-            status: 'failed',
-          }, null, 2),
-        }],
-        isError: true,
-      };
-
-      expect(response.isError).toBe(true);
-      expect(response.content[0].type).toBe('text');
-    });
-
-    it('should include thought history length in response', () => {
-      const responseData = {
-        thoughtNumber: 5,
-        totalThoughts: 10,
-        nextThoughtNeeded: true,
-        branches: [],
-        thoughtHistoryLength: 5,
-      };
-
-      expect(responseData.thoughtHistoryLength).toBe(5);
-    });
-
-    it('should include branch information in response', () => {
-      const responseData = {
-        thoughtNumber: 2,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branches: ['branch-1', 'branch-2'],
-        thoughtHistoryLength: 4,
-      };
-
-      expect(responseData.branches).toHaveLength(2);
-    });
-  });
-
-  describe('Tool Schema Validation', () => {
-    it('should define minimum value for thoughtNumber', () => {
-      const schema = {
-        thoughtNumber: {
-          type: 'integer',
-          minimum: 1,
-        },
-      };
-
-      expect(schema.thoughtNumber.minimum).toBe(1);
-    });
-
-    it('should define minimum value for totalThoughts', () => {
-      const schema = {
-        totalThoughts: {
-          type: 'integer',
-          minimum: 1,
-        },
-      };
-
-      expect(schema.totalThoughts.minimum).toBe(1);
-    });
-
-    it('should mark thought as required field', () => {
-      const required = ['thought', 'nextThoughtNeeded', 'thoughtNumber', 'totalThoughts'];
-      expect(required).toContain('thought');
-    });
-
-    it('should mark nextThoughtNeeded as required field', () => {
-      const required = ['thought', 'nextThoughtNeeded', 'thoughtNumber', 'totalThoughts'];
-      expect(required).toContain('nextThoughtNeeded');
-    });
-
-    it('should allow optional fields', () => {
-      const allFields = [
-        'thought',
-        'nextThoughtNeeded',
-        'thoughtNumber',
-        'totalThoughts',
-        'isRevision',
-        'revisesThought',
-        'branchFromThought',
-        'branchId',
-        'needsMoreThoughts',
+  describe('Sequential Thinking Workflow', () => {
+    it('completes a full thought sequence', () => {
+      const thoughts = [
+        { thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true },
+        { thoughtNumber: 2, totalThoughts: 3, nextThoughtNeeded: true },
+        { thoughtNumber: 3, totalThoughts: 3, nextThoughtNeeded: false },
       ];
-      const requiredFields = ['thought', 'nextThoughtNeeded', 'thoughtNumber', 'totalThoughts'];
-      const optionalFields = allFields.filter(f => !requiredFields.includes(f));
 
-      expect(optionalFields).toContain('isRevision');
-      expect(optionalFields).toContain('branchId');
+      expect(thoughts.length).toBe(3);
+      expect(thoughts[2].nextThoughtNeeded).toBe(false);
+    });
+
+    it('allows extending thought sequence mid-process', () => {
+      const thoughts = [
+        { thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true },
+        { thoughtNumber: 2, totalThoughts: 3, nextThoughtNeeded: true },
+        { thoughtNumber: 3, totalThoughts: 5, nextThoughtNeeded: true }, // Extended
+        { thoughtNumber: 4, totalThoughts: 5, nextThoughtNeeded: true },
+        { thoughtNumber: 5, totalThoughts: 5, nextThoughtNeeded: false },
+      ];
+
+      expect(thoughts[2].totalThoughts).toBe(5);
+      expect(thoughts.length).toBe(5);
+    });
+
+    it('supports non-linear thinking with revisions', () => {
+      const thoughts = [
+        { thoughtNumber: 1, totalThoughts: 5, nextThoughtNeeded: true },
+        { thoughtNumber: 2, totalThoughts: 5, nextThoughtNeeded: true },
+        { 
+          thoughtNumber: 3, 
+          totalThoughts: 5, 
+          nextThoughtNeeded: true,
+          isRevision: true,
+          revisesThought: 1 
+        },
+        { thoughtNumber: 4, totalThoughts: 5, nextThoughtNeeded: false },
+      ];
+
+      const revisions = thoughts.filter(t => t.isRevision);
+      expect(revisions.length).toBe(1);
+      expect(revisions[0].revisesThought).toBe(1);
+    });
+
+    it('supports exploring alternative paths via branches', () => {
+      const mainThoughts = [
+        { thoughtNumber: 1, totalThoughts: 5, nextThoughtNeeded: true },
+        { thoughtNumber: 2, totalThoughts: 5, nextThoughtNeeded: true },
+      ];
+
+      const branchThoughts = [
+        { 
+          thoughtNumber: 3, 
+          totalThoughts: 5, 
+          nextThoughtNeeded: true,
+          branchFromThought: 2,
+          branchId: 'alt-1'
+        },
+        { 
+          thoughtNumber: 4, 
+          totalThoughts: 5, 
+          nextThoughtNeeded: false,
+          branchId: 'alt-1'
+        },
+      ];
+
+      expect(branchThoughts[0].branchFromThought).toBe(2);
+      expect(branchThoughts.every(t => t.branchId === 'alt-1')).toBe(true);
     });
   });
 
-  describe('Unicode and Special Characters', () => {
-    it('should handle unicode characters in thoughts', () => {
-      const thought = {
-        thought: '日本語の思考プロセス',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought).toBe('日本語の思考プロセス');
-    });
-
-    it('should handle emojis in thoughts', () => {
-      const thought = {
-        thought: 'Exploring solutions 🚀 with creativity ✨',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought).toContain('🚀');
-      expect(thought.thought).toContain('✨');
-    });
-
-    it('should handle multiline thoughts', () => {
-      const thought = {
-        thought: 'First line\nSecond line\nThird line',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought).toContain('\n');
-      expect(thought.thought.split('\n')).toHaveLength(3);
-    });
-
-    it('should handle special characters in branch IDs', () => {
-      const branch = {
-        thought: 'Test',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branchId: 'branch-with-special-chars_123',
-      };
-
-      expect(branch.branchId).toContain('-');
-      expect(branch.branchId).toContain('_');
+  describe('Logging Control', () => {
+    it('respects DISABLE_THOUGHT_LOGGING environment variable', () => {
+      const originalValue = process.env.DISABLE_THOUGHT_LOGGING;
+      
+      process.env.DISABLE_THOUGHT_LOGGING = 'true';
+      const disableLogging = (process.env.DISABLE_THOUGHT_LOGGING || '').toLowerCase() === 'true';
+      expect(disableLogging).toBe(true);
+      
+      process.env.DISABLE_THOUGHT_LOGGING = 'false';
+      const enableLogging = (process.env.DISABLE_THOUGHT_LOGGING || '').toLowerCase() !== 'true';
+      expect(enableLogging).toBe(true);
+      
+      if (originalValue !== undefined) {
+        process.env.DISABLE_THOUGHT_LOGGING = originalValue;
+      } else {
+        delete process.env.DISABLE_THOUGHT_LOGGING;
+      }
     });
   });
 });
