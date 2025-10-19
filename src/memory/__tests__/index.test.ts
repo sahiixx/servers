@@ -3,600 +3,449 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Mock fs module
+// Mock the fs module
 jest.mock('fs/promises');
 const mockFs = fs as jest.Mocked<typeof fs>;
 
-describe('Memory Server', () => {
-  let testMemoryFile: string;
+// Mock the Server and Transport
+jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+  Server: jest.fn().mockImplementation(() => ({
+    setRequestHandler: jest.fn(),
+    connect: jest.fn(),
+  })),
+}));
+
+jest.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+  StdioServerTransport: jest.fn(),
+}));
+
+describe('KnowledgeGraphManager', () => {
+  let tmpDir: string;
+  let memoryFilePath: string;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    testMemoryFile = path.join(os.tmpdir(), 'test-memory.json');
-    process.env.MEMORY_FILE_PATH = testMemoryFile;
+    tmpDir = path.join(os.tmpdir(), `memory-test-${Date.now()}`);
+    memoryFilePath = path.join(tmpDir, 'memory.json');
+    process.env.MEMORY_FILE_PATH = memoryFilePath;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.MEMORY_FILE_PATH;
-  });
-
-  describe('KnowledgeGraph Data Structures', () => {
-    it('defines Entity structure correctly', () => {
-      const entity = {
-        name: 'Alice',
-        entityType: 'Person',
-        observations: ['Works at Company X', 'Likes programming'],
-      };
-
-      expect(entity).toHaveProperty('name');
-      expect(entity).toHaveProperty('entityType');
-      expect(entity).toHaveProperty('observations');
-      expect(Array.isArray(entity.observations)).toBe(true);
-    });
-
-    it('defines Relation structure correctly', () => {
-      const relation = {
-        from: 'Alice',
-        to: 'Bob',
-        relationType: 'knows',
-      };
-
-      expect(relation).toHaveProperty('from');
-      expect(relation).toHaveProperty('to');
-      expect(relation).toHaveProperty('relationType');
-    });
-
-    it('defines KnowledgeGraph structure correctly', () => {
-      const graph = {
-        entities: [],
-        relations: [],
-      };
-
-      expect(graph).toHaveProperty('entities');
-      expect(graph).toHaveProperty('relations');
-      expect(Array.isArray(graph.entities)).toBe(true);
-      expect(Array.isArray(graph.relations)).toBe(true);
-    });
+    jest.restoreAllMocks();
   });
 
   describe('Entity Operations', () => {
-    describe('Create Entities', () => {
-      it('creates new entities', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: ['Smart'] },
-          { name: 'Bob', entityType: 'Person', observations: ['Friendly'] },
-        ];
+    it('should create new entities successfully', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-        expect(entities.length).toBe(2);
-        expect(entities[0].name).toBe('Alice');
-        expect(entities[1].name).toBe('Bob');
-      });
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-      it('handles entities with multiple observations', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: [
-            'Software engineer',
-            'Works remotely',
-            'Enjoys hiking',
-            'Speaks multiple languages',
-          ],
-        };
+      const entities = [
+        { name: 'Alice', entityType: 'person', observations: ['likes coding'] },
+        { name: 'Bob', entityType: 'person', observations: ['enjoys reading'] },
+      ];
 
-        expect(entity.observations.length).toBe(4);
-      });
-
-      it('handles entities with empty observations', () => {
-        const entity = {
-          name: 'NewPerson',
-          entityType: 'Person',
-          observations: [],
-        };
-
-        expect(entity.observations).toEqual([]);
-      });
-
-      it('prevents duplicate entities by name', () => {
-        const existingEntities = [
-          { name: 'Alice', entityType: 'Person', observations: ['First'] },
-        ];
-        const newEntities = [
-          { name: 'Alice', entityType: 'Person', observations: ['Second'] },
-          { name: 'Bob', entityType: 'Person', observations: ['Different'] },
-        ];
-
-        const filtered = newEntities.filter(
-          e => !existingEntities.some(existing => existing.name === e.name)
-        );
-
-        expect(filtered.length).toBe(1);
-        expect(filtered[0].name).toBe('Bob');
-      });
+      const result = await manager.createEntities(entities);
+      expect(result).toHaveLength(2);
+      expect(result[0].name).toBe('Alice');
+      expect(mockFs.writeFile).toHaveBeenCalled();
     });
 
-    describe('Delete Entities', () => {
-      it('filters out deleted entities', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-          { name: 'Bob', entityType: 'Person', observations: [] },
-          { name: 'Charlie', entityType: 'Person', observations: [] },
-        ];
-        const toDelete = ['Bob'];
-
-        const remaining = entities.filter(e => !toDelete.includes(e.name));
-
-        expect(remaining.length).toBe(2);
-        expect(remaining.map(e => e.name)).toEqual(['Alice', 'Charlie']);
+    it('should not create duplicate entities', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
+        name: 'Alice',
+        entityType: 'person',
+        observations: ['existing observation'],
       });
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-      it('removes relations when entities are deleted', () => {
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Bob', to: 'Charlie', relationType: 'knows' },
-          { from: 'Alice', to: 'Charlie', relationType: 'knows' },
-        ];
-        const deletedEntities = ['Bob'];
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-        const remaining = relations.filter(
-          r => !deletedEntities.includes(r.from) && !deletedEntities.includes(r.to)
-        );
+      const entities = [
+        { name: 'Alice', entityType: 'person', observations: ['new observation'] },
+        { name: 'Charlie', entityType: 'person', observations: ['likes sports'] },
+      ];
 
-        expect(remaining.length).toBe(1);
-        expect(remaining[0].from).toBe('Alice');
-        expect(remaining[0].to).toBe('Charlie');
-      });
+      const result = await manager.createEntities(entities);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Charlie');
+    });
 
-      it('handles deleting multiple entities', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-          { name: 'Bob', entityType: 'Person', observations: [] },
-          { name: 'Charlie', entityType: 'Person', observations: [] },
-        ];
-        const toDelete = ['Alice', 'Charlie'];
+    it('should handle empty entity list', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-        const remaining = entities.filter(e => !toDelete.includes(e.name));
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-        expect(remaining.length).toBe(1);
-        expect(remaining[0].name).toBe('Bob');
-      });
+      const result = await manager.createEntities([]);
+      expect(result).toHaveLength(0);
     });
   });
 
   describe('Relation Operations', () => {
-    describe('Create Relations', () => {
-      it('creates new relations', () => {
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Bob', to: 'Charlie', relationType: 'manages' },
-        ];
+    it('should create new relations successfully', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-        expect(relations.length).toBe(2);
-        expect(relations[0].relationType).toBe('knows');
-        expect(relations[1].relationType).toBe('manages');
-      });
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-      it('prevents duplicate relations', () => {
-        const existingRelations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-        ];
-        const newRelations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Bob', to: 'Charlie', relationType: 'knows' },
-        ];
+      const relations = [
+        { from: 'Alice', to: 'Bob', relationType: 'knows' },
+        { from: 'Bob', to: 'Charlie', relationType: 'works_with' },
+      ];
 
-        const filtered = newRelations.filter(
-          r =>
-            !existingRelations.some(
-              existing =>
-                existing.from === r.from &&
-                existing.to === r.to &&
-                existing.relationType === r.relationType
-            )
-        );
-
-        expect(filtered.length).toBe(1);
-        expect(filtered[0].from).toBe('Bob');
-      });
-
-      it('allows multiple relation types between same entities', () => {
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Alice', to: 'Bob', relationType: 'manages' },
-          { from: 'Alice', to: 'Bob', relationType: 'mentors' },
-        ];
-
-        expect(relations.length).toBe(3);
-        expect(new Set(relations.map(r => r.relationType)).size).toBe(3);
-      });
+      const result = await manager.createRelations(relations);
+      expect(result).toHaveLength(2);
+      expect(result[0].from).toBe('Alice');
+      expect(result[0].relationType).toBe('knows');
     });
 
-    describe('Delete Relations', () => {
-      it('deletes specific relations', () => {
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Bob', to: 'Charlie', relationType: 'knows' },
-          { from: 'Alice', to: 'Charlie', relationType: 'manages' },
-        ];
-        const toDelete = [{ from: 'Alice', to: 'Bob', relationType: 'knows' }];
-
-        const remaining = relations.filter(
-          r =>
-            !toDelete.some(
-              del =>
-                r.from === del.from &&
-                r.to === del.to &&
-                r.relationType === del.relationType
-            )
-        );
-
-        expect(remaining.length).toBe(2);
+    it('should not create duplicate relations', async () => {
+      const existingData = JSON.stringify({
+        type: 'relation',
+        from: 'Alice',
+        to: 'Bob',
+        relationType: 'knows',
       });
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-      it('only deletes exact matches', () => {
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Alice', to: 'Bob', relationType: 'manages' },
-        ];
-        const toDelete = [{ from: 'Alice', to: 'Bob', relationType: 'knows' }];
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-        const remaining = relations.filter(
-          r =>
-            !toDelete.some(
-              del =>
-                r.from === del.from &&
-                r.to === del.to &&
-                r.relationType === del.relationType
-            )
-        );
+      const relations = [
+        { from: 'Alice', to: 'Bob', relationType: 'knows' },
+        { from: 'Bob', to: 'Charlie', relationType: 'works_with' },
+      ];
 
-        expect(remaining.length).toBe(1);
-        expect(remaining[0].relationType).toBe('manages');
-      });
+      const result = await manager.createRelations(relations);
+      expect(result).toHaveLength(1);
+      expect(result[0].from).toBe('Bob');
+    });
+
+    it('should handle empty relation list', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.createRelations([]);
+      expect(result).toHaveLength(0);
     });
   });
 
   describe('Observation Operations', () => {
-    describe('Add Observations', () => {
-      it('adds new observations to entity', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: ['First observation'],
-        };
-        const newObservations = ['Second observation', 'Third observation'];
-
-        const toAdd = newObservations.filter(
-          obs => !entity.observations.includes(obs)
-        );
-        entity.observations.push(...toAdd);
-
-        expect(entity.observations.length).toBe(3);
-      });
-
-      it('prevents duplicate observations', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: ['Likes coffee', 'Works remotely'],
-        };
-        const newObservations = ['Likes coffee', 'Enjoys reading'];
-
-        const toAdd = newObservations.filter(
-          obs => !entity.observations.includes(obs)
-        );
-
-        expect(toAdd.length).toBe(1);
-        expect(toAdd[0]).toBe('Enjoys reading');
-      });
-
-      it('handles adding multiple observations at once', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: [],
-        };
-        const newObservations = [
-          'Observation 1',
-          'Observation 2',
-          'Observation 3',
-          'Observation 4',
-        ];
-
-        entity.observations.push(...newObservations);
-
-        expect(entity.observations.length).toBe(4);
-      });
-    });
-
-    describe('Delete Observations', () => {
-      it('deletes specific observations', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: ['First', 'Second', 'Third', 'Fourth'],
-        };
-        const toDelete = ['Second', 'Fourth'];
-
-        entity.observations = entity.observations.filter(
-          obs => !toDelete.includes(obs)
-        );
-
-        expect(entity.observations.length).toBe(2);
-        expect(entity.observations).toEqual(['First', 'Third']);
-      });
-
-      it('handles non-existent observations gracefully', () => {
-        const entity = {
-          name: 'Alice',
-          entityType: 'Person',
-          observations: ['First', 'Second'],
-        };
-        const toDelete = ['NonExistent'];
-
-        entity.observations = entity.observations.filter(
-          obs => !toDelete.includes(obs)
-        );
-
-        expect(entity.observations.length).toBe(2);
-      });
-    });
-  });
-
-  describe('Search Operations', () => {
-    describe('Search Nodes', () => {
-      it('finds entities by name', () => {
-        const entities = [
-          { name: 'Alice Smith', entityType: 'Person', observations: [] },
-          { name: 'Bob Jones', entityType: 'Person', observations: [] },
-          { name: 'Alice Johnson', entityType: 'Person', observations: [] },
-        ];
-        const query = 'alice';
-
-        const results = entities.filter(e =>
-          e.name.toLowerCase().includes(query.toLowerCase())
-        );
-
-        expect(results.length).toBe(2);
-      });
-
-      it('finds entities by type', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-          { name: 'Google', entityType: 'Company', observations: [] },
-          { name: 'Bob', entityType: 'Person', observations: [] },
-        ];
-        const query = 'company';
-
-        const results = entities.filter(e =>
-          e.entityType.toLowerCase().includes(query.toLowerCase())
-        );
-
-        expect(results.length).toBe(1);
-        expect(results[0].name).toBe('Google');
-      });
-
-      it('finds entities by observation content', () => {
-        const entities = [
-          {
-            name: 'Alice',
-            entityType: 'Person',
-            observations: ['Works at Google', 'Lives in SF'],
-          },
-          {
-            name: 'Bob',
-            entityType: 'Person',
-            observations: ['Works at Microsoft'],
-          },
-        ];
-        const query = 'google';
-
-        const results = entities.filter(e =>
-          e.observations.some(obs =>
-            obs.toLowerCase().includes(query.toLowerCase())
-          )
-        );
-
-        expect(results.length).toBe(1);
-        expect(results[0].name).toBe('Alice');
-      });
-
-      it('is case-insensitive', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: ['SENIOR ENGINEER'] },
-        ];
-        const query = 'senior engineer';
-
-        const results = entities.filter(e =>
-          e.name.toLowerCase().includes(query.toLowerCase()) ||
-          e.entityType.toLowerCase().includes(query.toLowerCase()) ||
-          e.observations.some(obs =>
-            obs.toLowerCase().includes(query.toLowerCase())
-          )
-        );
-
-        expect(results.length).toBe(1);
-      });
-
-      it('returns empty array when no matches', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-        ];
-        const query = 'nonexistent';
-
-        const results = entities.filter(e =>
-          e.name.toLowerCase().includes(query.toLowerCase())
-        );
-
-        expect(results.length).toBe(0);
-      });
-    });
-
-    describe('Open Nodes', () => {
-      it('retrieves entities by name', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-          { name: 'Bob', entityType: 'Person', observations: [] },
-          { name: 'Charlie', entityType: 'Person', observations: [] },
-        ];
-        const names = ['Alice', 'Charlie'];
-
-        const results = entities.filter(e => names.includes(e.name));
-
-        expect(results.length).toBe(2);
-        expect(results.map(e => e.name).sort()).toEqual(['Alice', 'Charlie']);
-      });
-
-      it('returns empty array for non-existent names', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-        ];
-        const names = ['NonExistent'];
-
-        const results = entities.filter(e => names.includes(e.name));
-
-        expect(results.length).toBe(0);
-      });
-
-      it('filters relations to only include opened entities', () => {
-        const entities = [
-          { name: 'Alice', entityType: 'Person', observations: [] },
-          { name: 'Bob', entityType: 'Person', observations: [] },
-          { name: 'Charlie', entityType: 'Person', observations: [] },
-        ];
-        const relations = [
-          { from: 'Alice', to: 'Bob', relationType: 'knows' },
-          { from: 'Bob', to: 'Charlie', relationType: 'knows' },
-          { from: 'Alice', to: 'Charlie', relationType: 'knows' },
-        ];
-        const names = ['Alice', 'Charlie'];
-
-        const filteredEntityNames = new Set(
-          entities.filter(e => names.includes(e.name)).map(e => e.name)
-        );
-        const filteredRelations = relations.filter(
-          r => filteredEntityNames.has(r.from) && filteredEntityNames.has(r.to)
-        );
-
-        expect(filteredRelations.length).toBe(1);
-        expect(filteredRelations[0].from).toBe('Alice');
-        expect(filteredRelations[0].to).toBe('Charlie');
-      });
-    });
-  });
-
-  describe('Graph Persistence', () => {
-    it('serializes entities to JSON lines', () => {
-      const entities = [
-        { name: 'Alice', entityType: 'Person', observations: ['Smart'] },
-        { name: 'Bob', entityType: 'Person', observations: ['Friendly'] },
-      ];
-
-      const lines = entities.map(e =>
-        JSON.stringify({
-          type: 'entity',
-          name: e.name,
-          entityType: e.entityType,
-          observations: e.observations,
-        })
-      );
-
-      expect(lines.length).toBe(2);
-      expect(() => JSON.parse(lines[0])).not.toThrow();
-      expect(JSON.parse(lines[0]).type).toBe('entity');
-    });
-
-    it('serializes relations to JSON lines', () => {
-      const relations = [
-        { from: 'Alice', to: 'Bob', relationType: 'knows' },
-        { from: 'Bob', to: 'Charlie', relationType: 'manages' },
-      ];
-
-      const lines = relations.map(r =>
-        JSON.stringify({
-          type: 'relation',
-          from: r.from,
-          to: r.to,
-          relationType: r.relationType,
-        })
-      );
-
-      expect(lines.length).toBe(2);
-      expect(() => JSON.parse(lines[0])).not.toThrow();
-      expect(JSON.parse(lines[0]).type).toBe('relation');
-    });
-
-    it('deserializes JSON lines correctly', () => {
-      const lines = [
-        '{"type":"entity","name":"Alice","entityType":"Person","observations":["Smart"]}',
-        '{"type":"relation","from":"Alice","to":"Bob","relationType":"knows"}',
-      ];
-
-      const items = lines.map(line => JSON.parse(line));
-      const entities = items.filter(item => item.type === 'entity');
-      const relations = items.filter(item => item.type === 'relation');
-
-      expect(entities.length).toBe(1);
-      expect(relations.length).toBe(1);
-      expect(entities[0].name).toBe('Alice');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('handles empty knowledge graph', () => {
-      const graph = { entities: [], relations: [] };
-
-      expect(graph.entities.length).toBe(0);
-      expect(graph.relations.length).toBe(0);
-    });
-
-    it('handles entity with special characters in name', () => {
-      const entity = {
-        name: "O'Brien",
-        entityType: 'Person',
-        observations: ['Has apostrophe'],
-      };
-
-      const serialized = JSON.stringify(entity);
-      const deserialized = JSON.parse(serialized);
-
-      expect(deserialized.name).toBe("O'Brien");
-    });
-
-    it('handles observation with newlines and special chars', () => {
-      const entity = {
+    it('should add new observations to existing entities', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
         name: 'Alice',
-        entityType: 'Person',
-        observations: ['Line 1\nLine 2', 'Contains "quotes"'],
-      };
+        entityType: 'person',
+        observations: ['observation1'],
+      });
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
 
-      const serialized = JSON.stringify(entity);
-      const deserialized = JSON.parse(serialized);
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
 
-      expect(deserialized.observations[0]).toContain('\n');
-      expect(deserialized.observations[1]).toContain('"');
-    });
-
-    it('handles very long observation text', () => {
-      const longText = 'A'.repeat(10000);
-      const entity = {
-        name: 'Test',
-        entityType: 'Test',
-        observations: [longText],
-      };
-
-      expect(entity.observations[0].length).toBe(10000);
-    });
-
-    it('handles entities with same name but different types', () => {
-      const entities = [
-        { name: 'Mercury', entityType: 'Planet', observations: [] },
-        { name: 'Mercury', entityType: 'Element', observations: [] },
+      const observations = [
+        { entityName: 'Alice', contents: ['observation2', 'observation3'] },
       ];
 
-      // In actual implementation, names should be unique
-      // This tests the behavior when duplicates exist
-      expect(entities.length).toBe(2);
+      const result = await manager.addObservations(observations);
+      expect(result).toHaveLength(1);
+      expect(result[0].addedObservations).toHaveLength(2);
+    });
+
+    it('should not add duplicate observations', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
+        name: 'Alice',
+        entityType: 'person',
+        observations: ['observation1'],
+      });
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const observations = [
+        { entityName: 'Alice', contents: ['observation1', 'observation2'] },
+      ];
+
+      const result = await manager.addObservations(observations);
+      expect(result[0].addedObservations).toHaveLength(1);
+      expect(result[0].addedObservations[0]).toBe('observation2');
+    });
+
+    it('should throw error for non-existent entity', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const observations = [
+        { entityName: 'NonExistent', contents: ['observation1'] },
+      ];
+
+      await expect(manager.addObservations(observations)).rejects.toThrow(
+        'Entity with name NonExistent not found'
+      );
+    });
+  });
+
+  describe('Delete Operations', () => {
+    it('should delete entities and cascade delete relations', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Bob', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'relation', from: 'Alice', to: 'Bob', relationType: 'knows' }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      await manager.deleteEntities(['Alice']);
+      expect(mockFs.writeFile).toHaveBeenCalled();
+    });
+
+    it('should delete specific observations from entities', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
+        name: 'Alice',
+        entityType: 'person',
+        observations: ['obs1', 'obs2', 'obs3'],
+      });
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      await manager.deleteObservations([
+        { entityName: 'Alice', observations: ['obs1', 'obs3'] },
+      ]);
+      expect(mockFs.writeFile).toHaveBeenCalled();
+    });
+
+    it('should delete specific relations', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'relation', from: 'Alice', to: 'Bob', relationType: 'knows' }),
+        JSON.stringify({ type: 'relation', from: 'Bob', to: 'Charlie', relationType: 'works_with' }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      await manager.deleteRelations([
+        { from: 'Alice', to: 'Bob', relationType: 'knows' },
+      ]);
+      expect(mockFs.writeFile).toHaveBeenCalled();
+    });
+  });
+
+  describe('Search and Query Operations', () => {
+    it('should search nodes by name', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice Smith', entityType: 'person', observations: ['developer'] }),
+        JSON.stringify({ type: 'entity', name: 'Bob Johnson', entityType: 'person', observations: ['designer'] }),
+        JSON.stringify({ type: 'relation', from: 'Alice Smith', to: 'Bob Johnson', relationType: 'knows' }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.searchNodes('alice');
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0].name).toBe('Alice Smith');
+    });
+
+    it('should search nodes by entity type', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'developer', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Bob', entityType: 'designer', observations: [] }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.searchNodes('developer');
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0].entityType).toBe('developer');
+    });
+
+    it('should search nodes by observation content', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
+        name: 'Alice',
+        entityType: 'person',
+        observations: ['loves programming in TypeScript'],
+      });
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.searchNodes('typescript');
+      expect(result.entities).toHaveLength(1);
+    });
+
+    it('should return empty results for non-matching search', async () => {
+      const existingData = JSON.stringify({
+        type: 'entity',
+        name: 'Alice',
+        entityType: 'person',
+        observations: [],
+      });
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.searchNodes('nonexistent');
+      expect(result.entities).toHaveLength(0);
+      expect(result.relations).toHaveLength(0);
+    });
+
+    it('should open specific nodes by name', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Bob', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Charlie', entityType: 'person', observations: [] }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.openNodes(['Alice', 'Charlie']);
+      expect(result.entities).toHaveLength(2);
+      expect(result.entities.map((e: any) => e.name).sort()).toEqual(['Alice', 'Charlie']);
+    });
+
+    it('should read entire graph', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Bob', entityType: 'person', observations: [] }),
+        JSON.stringify({ type: 'relation', from: 'Alice', to: 'Bob', relationType: 'knows' }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.readGraph();
+      expect(result.entities).toHaveLength(2);
+      expect(result.relations).toHaveLength(1);
+    });
+  });
+
+  describe('Edge Cases and Error Handling', () => {
+    it('should handle malformed JSON in storage file', async () => {
+      mockFs.readFile.mockResolvedValue('invalid json\n{malformed}');
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      await expect(manager.readGraph()).rejects.toThrow();
+    });
+
+    it('should handle file system errors gracefully', async () => {
+      mockFs.readFile.mockRejectedValue(new Error('Permission denied'));
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      await expect(manager.readGraph()).rejects.toThrow('Permission denied');
+    });
+
+    it('should handle empty storage file', async () => {
+      mockFs.readFile.mockResolvedValue('');
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.readGraph();
+      expect(result.entities).toHaveLength(0);
+      expect(result.relations).toHaveLength(0);
+    });
+
+    it('should handle storage file with only whitespace', async () => {
+      mockFs.readFile.mockResolvedValue('  \n  \n  ');
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.readGraph();
+      expect(result.entities).toHaveLength(0);
+      expect(result.relations).toHaveLength(0);
+    });
+  });
+
+  describe('Complex Scenarios', () => {
+    it('should handle multiple entities and relations together', async () => {
+      mockFs.readFile.mockRejectedValue({ code: 'ENOENT' });
+      mockFs.writeFile.mockResolvedValue(undefined);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      // Create entities
+      const entities = [
+        { name: 'Alice', entityType: 'person', observations: ['developer'] },
+        { name: 'Bob', entityType: 'person', observations: ['designer'] },
+        { name: 'Project X', entityType: 'project', observations: ['active'] },
+      ];
+      await manager.createEntities(entities);
+
+      // Create relations
+      const relations = [
+        { from: 'Alice', to: 'Project X', relationType: 'works_on' },
+        { from: 'Bob', to: 'Project X', relationType: 'works_on' },
+        { from: 'Alice', to: 'Bob', relationType: 'collaborates_with' },
+      ];
+      
+      mockFs.readFile.mockResolvedValue(
+        entities.map(e => JSON.stringify({ type: 'entity', ...e })).join('\n')
+      );
+      
+      await manager.createRelations(relations);
+      expect(mockFs.writeFile).toHaveBeenCalled();
+    });
+
+    it('should filter relations when searching to only include filtered entities', async () => {
+      const existingData = [
+        JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'developer', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Bob', entityType: 'designer', observations: [] }),
+        JSON.stringify({ type: 'entity', name: 'Charlie', entityType: 'manager', observations: [] }),
+        JSON.stringify({ type: 'relation', from: 'Alice', to: 'Bob', relationType: 'works_with' }),
+        JSON.stringify({ type: 'relation', from: 'Bob', to: 'Charlie', relationType: 'reports_to' }),
+      ].join('\n');
+      mockFs.readFile.mockResolvedValue(existingData);
+
+      const { KnowledgeGraphManager } = await import('../index.js');
+      const manager = new (KnowledgeGraphManager as any)();
+
+      const result = await manager.searchNodes('developer');
+      expect(result.entities).toHaveLength(1);
+      // Relations should not include Bob to Charlie since only Alice was in search results
+      expect(result.relations).toHaveLength(0);
     });
   });
 });

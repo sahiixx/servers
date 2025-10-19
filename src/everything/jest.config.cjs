@@ -19,5 +19,6 @@ module.exports = {
     '**/*.ts',
     '!**/__tests__/**',
     '!**/dist/**',
+    '!**/node_modules/**',
   ],
 }

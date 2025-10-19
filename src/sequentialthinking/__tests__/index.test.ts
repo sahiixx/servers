@@ -1,499 +1,577 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 
-describe('Sequential Thinking Server', () => {
-  describe('ThoughtData Structure', () => {
-    it('defines required fields', () => {
-      const thoughtData = {
-        thought: 'This is my first thought',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
+// Mock chalk before importing the module
+jest.mock('chalk', () => ({
+  default: {
+    yellow: jest.fn((str: string) => str),
+    green: jest.fn((str: string) => str),
+    blue: jest.fn((str: string) => str),
+  },
+}));
 
-      expect(thoughtData).toHaveProperty('thought');
-      expect(thoughtData).toHaveProperty('thoughtNumber');
-      expect(thoughtData).toHaveProperty('totalThoughts');
-      expect(thoughtData).toHaveProperty('nextThoughtNeeded');
-    });
+// Mock the Server and Transport
+jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+  Server: jest.fn().mockImplementation(() => ({
+    setRequestHandler: jest.fn(),
+    connect: jest.fn(),
+  })),
+}));
 
-    it('includes optional revision fields', () => {
-      const thoughtData = {
-        thought: 'Revising previous thought',
-        thoughtNumber: 3,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        isRevision: true,
-        revisesThought: 2,
-      };
+jest.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+  StdioServerTransport: jest.fn(),
+}));
 
-      expect(thoughtData.isRevision).toBe(true);
-      expect(thoughtData.revisesThought).toBe(2);
-    });
+describe('SequentialThinkingServer', () => {
+  let originalEnv: NodeJS.ProcessEnv;
 
-    it('includes optional branching fields', () => {
-      const thoughtData = {
-        thought: 'Branching into alternative approach',
-        thoughtNumber: 4,
-        totalThoughts: 6,
-        nextThoughtNeeded: true,
-        branchFromThought: 3,
-        branchId: 'branch-1',
-      };
+  beforeEach(() => {
+    jest.clearAllMocks();
+    originalEnv = { ...process.env };
+  });
 
-      expect(thoughtData.branchFromThought).toBe(3);
-      expect(thoughtData.branchId).toBe('branch-1');
-    });
+  afterEach(() => {
+    process.env = originalEnv;
+    jest.restoreAllMocks();
   });
 
   describe('Thought Validation', () => {
-    it('validates thought is a string', () => {
-      const invalidData = {
-        thought: 123,
+    it('should validate valid thought data', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const validInput = {
+        thought: 'This is a test thought',
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(typeof invalidData.thought).not.toBe('string');
+      const result = server.processThought(validInput);
+      expect(result.content).toBeDefined();
+      expect(result.content[0].type).toBe('text');
+      expect(result.isError).toBeUndefined();
     });
 
-    it('validates thoughtNumber is a number', () => {
-      const validData = {
-        thought: 'Valid thought',
+    it('should reject thought without required thought field', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const invalidInput = {
         thoughtNumber: 1,
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(typeof validData.thoughtNumber).toBe('number');
-      expect(validData.thoughtNumber).toBeGreaterThan(0);
+      const result = server.processThought(invalidInput);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Invalid thought');
     });
 
-    it('validates totalThoughts is a number', () => {
-      const validData = {
-        thought: 'Valid thought',
-        thoughtNumber: 1,
+    it('should reject thought with invalid thoughtNumber type', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const invalidInput = {
+        thought: 'Test thought',
+        thoughtNumber: 'not a number',
         totalThoughts: 5,
         nextThoughtNeeded: true,
       };
 
-      expect(typeof validData.totalThoughts).toBe('number');
-      expect(validData.totalThoughts).toBeGreaterThan(0);
+      const result = server.processThought(invalidInput);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Invalid thoughtNumber');
     });
 
-    it('validates nextThoughtNeeded is a boolean', () => {
-      const validData = {
-        thought: 'Valid thought',
+    it('should reject thought with invalid totalThoughts type', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const invalidInput = {
+        thought: 'Test thought',
         thoughtNumber: 1,
-        totalThoughts: 5,
+        totalThoughts: 'invalid',
         nextThoughtNeeded: true,
       };
 
-      expect(typeof validData.nextThoughtNeeded).toBe('boolean');
+      const result = server.processThought(invalidInput);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Invalid totalThoughts');
+    });
+
+    it('should reject thought with invalid nextThoughtNeeded type', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const invalidInput = {
+        thought: 'Test thought',
+        thoughtNumber: 1,
+        totalThoughts: 5,
+        nextThoughtNeeded: 'maybe',
+      };
+
+      const result = server.processThought(invalidInput);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Invalid nextThoughtNeeded');
     });
   });
 
-  describe('Thought History Management', () => {
-    it('tracks thought history in order', () => {
-      const history: any[] = [];
-      
-      history.push({
-        thought: 'First thought',
+  describe('Thought Processing', () => {
+    it('should process regular thoughts correctly', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const thought = {
+        thought: 'Analyzing the problem',
         thoughtNumber: 1,
         totalThoughts: 3,
         nextThoughtNeeded: true,
-      });
+      };
+
+      const result = server.processThought(thought);
+      expect(result.isError).toBeUndefined();
       
-      history.push({
-        thought: 'Second thought',
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.thoughtNumber).toBe(1);
+      expect(parsedResult.totalThoughts).toBe(3);
+      expect(parsedResult.nextThoughtNeeded).toBe(true);
+      expect(parsedResult.thoughtHistoryLength).toBe(1);
+    });
+
+    it('should process revision thoughts correctly', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const revision = {
+        thought: 'Revising previous analysis',
         thoughtNumber: 2,
         totalThoughts: 3,
         nextThoughtNeeded: true,
-      });
-
-      expect(history.length).toBe(2);
-      expect(history[0].thoughtNumber).toBe(1);
-      expect(history[1].thoughtNumber).toBe(2);
-    });
-
-    it('adjusts totalThoughts when thoughtNumber exceeds it', () => {
-      let thoughtData = {
-        thought: 'Need more thoughts',
-        thoughtNumber: 6,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
+        isRevision: true,
+        revisesThought: 1,
       };
 
-      if (thoughtData.thoughtNumber > thoughtData.totalThoughts) {
-        thoughtData.totalThoughts = thoughtData.thoughtNumber;
-      }
-
-      expect(thoughtData.totalThoughts).toBe(6);
+      const result = server.processThought(revision);
+      expect(result.isError).toBeUndefined();
+      
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.thoughtNumber).toBe(2);
+      expect(parsedResult.thoughtHistoryLength).toBe(1);
     });
 
-    it('handles revision thoughts', () => {
-      const history: any[] = [];
-      
-      history.push({
-        thought: 'Original thought',
+    it('should process branch thoughts correctly', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const branch = {
+        thought: 'Exploring alternative approach',
         thoughtNumber: 2,
-        totalThoughts: 5,
+        totalThoughts: 4,
         nextThoughtNeeded: true,
-      });
+        branchFromThought: 1,
+        branchId: 'branch-alpha',
+      };
+
+      const result = server.processThought(branch);
+      expect(result.isError).toBeUndefined();
       
-      history.push({
-        thought: 'Revised thought',
-        thoughtNumber: 3,
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.branches).toContain('branch-alpha');
+      expect(parsedResult.thoughtHistoryLength).toBe(1);
+    });
+
+    it('should auto-adjust totalThoughts if thoughtNumber exceeds it', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const thought = {
+        thought: 'Additional thought',
+        thoughtNumber: 6,
         totalThoughts: 5,
-        nextThoughtNeeded: true,
-        isRevision: true,
-        revisesThought: 2,
+        nextThoughtNeeded: false,
+      };
+
+      const result = server.processThought(thought);
+      expect(result.isError).toBeUndefined();
+      
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.totalThoughts).toBe(6);
+    });
+
+    it('should track multiple thoughts in history', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const thoughts = [
+        { thought: 'First thought', thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true },
+        { thought: 'Second thought', thoughtNumber: 2, totalThoughts: 3, nextThoughtNeeded: true },
+        { thought: 'Third thought', thoughtNumber: 3, totalThoughts: 3, nextThoughtNeeded: false },
+      ];
+
+      thoughts.forEach((t) => server.processThought(t));
+      
+      const lastResult = server.processThought({
+        thought: 'Final thought',
+        thoughtNumber: 4,
+        totalThoughts: 4,
+        nextThoughtNeeded: false,
       });
 
-      const revision = history[1];
-      expect(revision.isRevision).toBe(true);
-      expect(revision.revisesThought).toBe(2);
+      const parsedResult = JSON.parse(lastResult.content[0].text);
+      expect(parsedResult.thoughtHistoryLength).toBe(4);
     });
   });
 
   describe('Branch Management', () => {
-    it('creates new branches', () => {
-      const branches: Record<string, any[]> = {};
-      const branchId = 'branch-1';
-      
-      if (!branches[branchId]) {
-        branches[branchId] = [];
-      }
+    it('should track multiple branches separately', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
 
-      branches[branchId].push({
-        thought: 'Branched thought',
-        thoughtNumber: 4,
-        totalThoughts: 6,
+      const branch1 = {
+        thought: 'Branch 1 thought',
+        thoughtNumber: 2,
+        totalThoughts: 4,
         nextThoughtNeeded: true,
-        branchFromThought: 3,
+        branchFromThought: 1,
         branchId: 'branch-1',
-      });
-
-      expect(branches['branch-1']).toBeDefined();
-      expect(branches['branch-1'].length).toBe(1);
-    });
-
-    it('tracks multiple branches', () => {
-      const branches: Record<string, any[]> = {
-        'branch-1': [{
-          thought: 'Branch 1 thought',
-          thoughtNumber: 4,
-          totalThoughts: 6,
-          nextThoughtNeeded: true,
-          branchFromThought: 3,
-          branchId: 'branch-1',
-        }],
-        'branch-2': [{
-          thought: 'Branch 2 thought',
-          thoughtNumber: 4,
-          totalThoughts: 6,
-          nextThoughtNeeded: true,
-          branchFromThought: 3,
-          branchId: 'branch-2',
-        }],
       };
 
-      expect(Object.keys(branches).length).toBe(2);
-      expect(branches['branch-1']).toBeDefined();
-      expect(branches['branch-2']).toBeDefined();
+      const branch2 = {
+        thought: 'Branch 2 thought',
+        thoughtNumber: 2,
+        totalThoughts: 4,
+        nextThoughtNeeded: true,
+        branchFromThought: 1,
+        branchId: 'branch-2',
+      };
+
+      server.processThought(branch1);
+      const result = server.processThought(branch2);
+
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.branches).toHaveLength(2);
+      expect(parsedResult.branches).toContain('branch-1');
+      expect(parsedResult.branches).toContain('branch-2');
     });
 
-    it('accumulates thoughts within a branch', () => {
-      const branches: Record<string, any[]> = {};
-      const branchId = 'branch-1';
+    it('should add multiple thoughts to same branch', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const branchThoughts = [
+        {
+          thought: 'Branch thought 1',
+          thoughtNumber: 2,
+          totalThoughts: 5,
+          nextThoughtNeeded: true,
+          branchFromThought: 1,
+          branchId: 'main-branch',
+        },
+        {
+          thought: 'Branch thought 2',
+          thoughtNumber: 3,
+          totalThoughts: 5,
+          nextThoughtNeeded: true,
+          branchFromThought: 1,
+          branchId: 'main-branch',
+        },
+      ];
+
+      branchThoughts.forEach((t) => server.processThought(t));
       
-      if (!branches[branchId]) {
-        branches[branchId] = [];
-      }
-
-      branches[branchId].push({
-        thought: 'First branch thought',
+      const result = server.processThought({
+        thought: 'Status check',
         thoughtNumber: 4,
-        totalThoughts: 6,
-        nextThoughtNeeded: true,
-        branchFromThought: 3,
-        branchId: 'branch-1',
-      });
-
-      branches[branchId].push({
-        thought: 'Second branch thought',
-        thoughtNumber: 5,
-        totalThoughts: 6,
+        totalThoughts: 5,
         nextThoughtNeeded: false,
-        branchId: 'branch-1',
       });
 
-      expect(branches['branch-1'].length).toBe(2);
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.branches).toContain('main-branch');
     });
   });
 
-  describe('Thought Formatting', () => {
-    it('formats regular thoughts', () => {
+  describe('Thought Logging', () => {
+    it('should not log thoughts when DISABLE_THOUGHT_LOGGING is true', async () => {
+      process.env.DISABLE_THOUGHT_LOGGING = 'true';
+      
+      // Clear module cache to reload with new env var
+      jest.resetModules();
+      
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
       const thought = {
-        thought: 'Analyzing the problem',
+        thought: 'Test thought',
         thoughtNumber: 1,
-        totalThoughts: 5,
+        totalThoughts: 3,
         nextThoughtNeeded: true,
       };
 
-      const formatted = `Thought ${thought.thoughtNumber}/${thought.totalThoughts}`;
-      expect(formatted).toContain('1/5');
+      server.processThought(thought);
+
+      // Should not call console.error when logging is disabled
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
     });
 
-    it('indicates revision in formatting', () => {
+    it('should log thoughts when DISABLE_THOUGHT_LOGGING is false', async () => {
+      process.env.DISABLE_THOUGHT_LOGGING = 'false';
+      
+      jest.resetModules();
+      
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
       const thought = {
-        thought: 'Correcting previous analysis',
+        thought: 'Test thought',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      server.processThought(thought);
+
+      // Should call console.error when logging is enabled
+      expect(consoleErrorSpy).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('Response Format', () => {
+    it('should return properly formatted success response', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const thought = {
+        thought: 'Test thought',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      const result = server.processThought(thought);
+      
+      expect(result).toHaveProperty('content');
+      expect(Array.isArray(result.content)).toBe(true);
+      expect(result.content[0]).toHaveProperty('type', 'text');
+      expect(result.content[0]).toHaveProperty('text');
+      
+      // Should be valid JSON
+      expect(() => JSON.parse(result.content[0].text)).not.toThrow();
+    });
+
+    it('should return properly formatted error response', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const invalidThought = {
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      const result = server.processThought(invalidThought);
+      
+      expect(result).toHaveProperty('isError', true);
+      expect(result).toHaveProperty('content');
+      expect(Array.isArray(result.content)).toBe(true);
+      
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed).toHaveProperty('error');
+      expect(parsed).toHaveProperty('status', 'failed');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle thought with all optional fields', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const complexThought = {
+        thought: 'Complex thought',
         thoughtNumber: 3,
         totalThoughts: 5,
         nextThoughtNeeded: true,
         isRevision: true,
         revisesThought: 2,
-      };
-
-      const formatted = thought.isRevision 
-        ? `Revision (revising thought ${thought.revisesThought})`
-        : 'Regular thought';
-      
-      expect(formatted).toContain('Revision');
-      expect(formatted).toContain('2');
-    });
-
-    it('indicates branching in formatting', () => {
-      const thought = {
-        thought: 'Exploring alternative',
-        thoughtNumber: 4,
-        totalThoughts: 6,
-        nextThoughtNeeded: true,
-        branchFromThought: 3,
-        branchId: 'branch-1',
-      };
-
-      const formatted = thought.branchFromThought 
-        ? `Branch (from thought ${thought.branchFromThought}, ID: ${thought.branchId})`
-        : 'Regular thought';
-      
-      expect(formatted).toContain('Branch');
-      expect(formatted).toContain('3');
-      expect(formatted).toContain('branch-1');
-    });
-  });
-
-  describe('Thought Processing Results', () => {
-    it('returns success status with metadata', () => {
-      const result = {
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-        branches: [],
-        thoughtHistoryLength: 1,
-      };
-
-      expect(result.thoughtNumber).toBe(1);
-      expect(result.totalThoughts).toBe(5);
-      expect(result.nextThoughtNeeded).toBe(true);
-      expect(result.branches).toBeDefined();
-      expect(result.thoughtHistoryLength).toBe(1);
-    });
-
-    it('returns error status on failure', () => {
-      const result = {
-        error: 'Invalid thought: must be a string',
-        status: 'failed',
-      };
-
-      expect(result.error).toBeDefined();
-      expect(result.status).toBe('failed');
-    });
-
-    it('includes branch information in result', () => {
-      const branches = ['branch-1', 'branch-2'];
-      const result = {
-        thoughtNumber: 5,
-        totalThoughts: 8,
-        nextThoughtNeeded: true,
-        branches: branches,
-        thoughtHistoryLength: 7,
-      };
-
-      expect(result.branches.length).toBe(2);
-      expect(result.branches).toContain('branch-1');
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('handles thought number exceeding total thoughts', () => {
-      const thought = {
-        thought: 'Unexpected continuation',
-        thoughtNumber: 8,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      // Should auto-adjust
-      const adjusted = {
-        ...thought,
-        totalThoughts: Math.max(thought.totalThoughts, thought.thoughtNumber),
-      };
-
-      expect(adjusted.totalThoughts).toBe(8);
-    });
-
-    it('handles empty thought text', () => {
-      const thought = {
-        thought: '',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought).toBe('');
-      expect(thought.thought.length).toBe(0);
-    });
-
-    it('handles very long thought text', () => {
-      const longThought = 'A'.repeat(10000);
-      const thought = {
-        thought: longThought,
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought.length).toBe(10000);
-    });
-
-    it('handles thought with special characters', () => {
-      const thought = {
-        thought: 'Thought with\nnewlines\tand\ttabs and "quotes" and \'apostrophes\'',
-        thoughtNumber: 1,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      expect(thought.thought).toContain('\n');
-      expect(thought.thought).toContain('\t');
-      expect(thought.thought).toContain('"');
-    });
-
-    it('handles zero or negative thought numbers gracefully', () => {
-      const invalidThought = {
-        thought: 'Invalid',
-        thoughtNumber: 0,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
-      };
-
-      // Should be rejected in validation
-      expect(invalidThought.thoughtNumber).toBeLessThanOrEqual(0);
-    });
-
-    it('handles needsMoreThoughts flag', () => {
-      const thought = {
-        thought: 'Realizing more analysis needed',
-        thoughtNumber: 5,
-        totalThoughts: 5,
-        nextThoughtNeeded: true,
+        branchFromThought: 1,
+        branchId: 'complex-branch',
         needsMoreThoughts: true,
       };
 
-      expect(thought.needsMoreThoughts).toBe(true);
-      expect(thought.nextThoughtNeeded).toBe(true);
+      const result = server.processThought(complexThought);
+      expect(result.isError).toBeUndefined();
+      
+      const parsedResult = JSON.parse(result.content[0].text);
+      expect(parsedResult.thoughtNumber).toBe(3);
+      expect(parsedResult.branches).toContain('complex-branch');
+    });
+
+    it('should handle empty thought string', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const emptyThought = {
+        thought: '',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      // Empty string is still a valid string
+      const result = server.processThought(emptyThought);
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should handle very long thought strings', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const longThought = {
+        thought: 'A'.repeat(10000),
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      const result = server.processThought(longThought);
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should handle zero thoughtNumber gracefully', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const zeroThought = {
+        thought: 'Zero thought',
+        thoughtNumber: 0,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      const result = server.processThought(zeroThought);
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should handle negative thoughtNumber', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const negativeThought = {
+        thought: 'Negative thought',
+        thoughtNumber: -1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      };
+
+      const result = server.processThought(negativeThought);
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should handle null values in optional fields', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const thoughtWithNulls = {
+        thought: 'Test thought',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+        isRevision: null,
+        revisesThought: null,
+        branchFromThought: null,
+        branchId: null,
+      };
+
+      const result = server.processThought(thoughtWithNulls);
+      expect(result.isError).toBeUndefined();
     });
   });
 
-  describe('Sequential Thinking Workflow', () => {
-    it('completes a full thought sequence', () => {
-      const thoughts = [
-        { thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true },
-        { thoughtNumber: 2, totalThoughts: 3, nextThoughtNeeded: true },
-        { thoughtNumber: 3, totalThoughts: 3, nextThoughtNeeded: false },
+  describe('Sequential Thought Patterns', () => {
+    it('should handle linear thought progression', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
+
+      const linearThoughts = [
+        { thought: 'Step 1: Understand problem', thoughtNumber: 1, totalThoughts: 5, nextThoughtNeeded: true },
+        { thought: 'Step 2: Analyze requirements', thoughtNumber: 2, totalThoughts: 5, nextThoughtNeeded: true },
+        { thought: 'Step 3: Design solution', thoughtNumber: 3, totalThoughts: 5, nextThoughtNeeded: true },
+        { thought: 'Step 4: Implement', thoughtNumber: 4, totalThoughts: 5, nextThoughtNeeded: true },
+        { thought: 'Step 5: Validate', thoughtNumber: 5, totalThoughts: 5, nextThoughtNeeded: false },
       ];
 
-      expect(thoughts.length).toBe(3);
-      expect(thoughts[2].nextThoughtNeeded).toBe(false);
+      let result;
+      linearThoughts.forEach((t) => {
+        result = server.processThought(t);
+      });
+
+      const parsedResult = JSON.parse(result!.content[0].text);
+      expect(parsedResult.thoughtHistoryLength).toBe(5);
+      expect(parsedResult.nextThoughtNeeded).toBe(false);
     });
 
-    it('allows extending thought sequence mid-process', () => {
-      const thoughts = [
-        { thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true },
-        { thoughtNumber: 2, totalThoughts: 3, nextThoughtNeeded: true },
-        { thoughtNumber: 3, totalThoughts: 5, nextThoughtNeeded: true }, // Extended
-        { thoughtNumber: 4, totalThoughts: 5, nextThoughtNeeded: true },
-        { thoughtNumber: 5, totalThoughts: 5, nextThoughtNeeded: false },
-      ];
+    it('should handle thought revision pattern', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
 
-      expect(thoughts[2].totalThoughts).toBe(5);
-      expect(thoughts.length).toBe(5);
+      server.processThought({
+        thought: 'Initial approach',
+        thoughtNumber: 1,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+      });
+
+      const revision = server.processThought({
+        thought: 'Better approach found',
+        thoughtNumber: 2,
+        totalThoughts: 3,
+        nextThoughtNeeded: true,
+        isRevision: true,
+        revisesThought: 1,
+      });
+
+      expect(revision.isError).toBeUndefined();
+      const parsedResult = JSON.parse(revision.content[0].text);
+      expect(parsedResult.thoughtHistoryLength).toBe(2);
     });
 
-    it('supports non-linear thinking with revisions', () => {
-      const thoughts = [
-        { thoughtNumber: 1, totalThoughts: 5, nextThoughtNeeded: true },
-        { thoughtNumber: 2, totalThoughts: 5, nextThoughtNeeded: true },
-        { 
-          thoughtNumber: 3, 
-          totalThoughts: 5, 
-          nextThoughtNeeded: true,
-          isRevision: true,
-          revisesThought: 1 
-        },
-        { thoughtNumber: 4, totalThoughts: 5, nextThoughtNeeded: false },
-      ];
+    it('should handle extending thoughts beyond initial estimate', async () => {
+      const { SequentialThinkingServer } = await import('../index.js');
+      const server = new (SequentialThinkingServer as any)();
 
-      const revisions = thoughts.filter(t => t.isRevision);
-      expect(revisions.length).toBe(1);
-      expect(revisions[0].revisesThought).toBe(1);
-    });
+      server.processThought({
+        thought: 'Thought 1',
+        thoughtNumber: 1,
+        totalThoughts: 2,
+        nextThoughtNeeded: true,
+      });
 
-    it('supports exploring alternative paths via branches', () => {
-      const mainThoughts = [
-        { thoughtNumber: 1, totalThoughts: 5, nextThoughtNeeded: true },
-        { thoughtNumber: 2, totalThoughts: 5, nextThoughtNeeded: true },
-      ];
+      server.processThought({
+        thought: 'Thought 2',
+        thoughtNumber: 2,
+        totalThoughts: 2,
+        nextThoughtNeeded: true,
+        needsMoreThoughts: true,
+      });
 
-      const branchThoughts = [
-        { 
-          thoughtNumber: 3, 
-          totalThoughts: 5, 
-          nextThoughtNeeded: true,
-          branchFromThought: 2,
-          branchId: 'alt-1'
-        },
-        { 
-          thoughtNumber: 4, 
-          totalThoughts: 5, 
-          nextThoughtNeeded: false,
-          branchId: 'alt-1'
-        },
-      ];
+      const extended = server.processThought({
+        thought: 'Thought 3 (extended)',
+        thoughtNumber: 3,
+        totalThoughts: 4,
+        nextThoughtNeeded: true,
+      });
 
-      expect(branchThoughts[0].branchFromThought).toBe(2);
-      expect(branchThoughts.every(t => t.branchId === 'alt-1')).toBe(true);
-    });
-  });
-
-  describe('Logging Control', () => {
-    it('respects DISABLE_THOUGHT_LOGGING environment variable', () => {
-      const originalValue = process.env.DISABLE_THOUGHT_LOGGING;
-      
-      process.env.DISABLE_THOUGHT_LOGGING = 'true';
-      const disableLogging = (process.env.DISABLE_THOUGHT_LOGGING || '').toLowerCase() === 'true';
-      expect(disableLogging).toBe(true);
-      
-      process.env.DISABLE_THOUGHT_LOGGING = 'false';
-      const enableLogging = (process.env.DISABLE_THOUGHT_LOGGING || '').toLowerCase() !== 'true';
-      expect(enableLogging).toBe(true);
-      
-      if (originalValue !== undefined) {
-        process.env.DISABLE_THOUGHT_LOGGING = originalValue;
-      } else {
-        delete process.env.DISABLE_THOUGHT_LOGGING;
-      }
+      const parsedResult = JSON.parse(extended.content[0].text);
+      expect(parsedResult.thoughtHistoryLength).toBe(3);
+      expect(parsedResult.totalThoughts).toBe(4);
     });
   });
 });
